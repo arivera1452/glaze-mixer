@@ -1,0 +1,1562 @@
+// ═══════════════════════════════════════════════════════
+//  TAB SWITCHING
+// ═══════════════════════════════════════════════════════
+let activeTab = 'mixer';
+
+function switchTab(tab) {
+    activeTab = tab;
+
+    document.querySelectorAll('.tab-btn').forEach((b, i) => {
+        b.classList.toggle('active', (i === 0) === (tab === 'mixer'));
+    });
+    document.getElementById('mixer-panel').classList.toggle('active', tab === 'mixer');
+    document.getElementById('tracker-panel').classList.toggle('active', tab === 'tracker');
+
+    const cnv = document.querySelector('#canvas-container canvas');
+    if (cnv) {
+        if (tab === 'mixer') {
+            cnv.style.visibility = 'visible';
+            if (typeof loop === 'function') loop();
+            redraw();
+        } else {
+            cnv.style.visibility = 'hidden';
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+//  GLAZE MIXER  (p5.js)
+// ═══════════════════════════════════════════════════════
+let studioGlazes = [];
+let activeStudioCode = null; // null = personal (default) glazes
+let selectedL1 = null;
+let selectedL2 = null;
+
+let scrollX = 0;
+let targetScrollX = 0;
+let SWATCH    = 108;
+let GAP       = 18;
+let STEP      = SWATCH + GAP;
+let START_X   = 62;
+
+// These are computed dynamically in setup() based on actual canvas size
+let TILE_SIZE = 320;
+let TILE_CX   = 220;
+let TILE_CY   = 515;
+
+let dragStartX      = 0;
+let dragStartScroll = 0;
+let isDragging      = false;
+const DRAG_THRESHOLD = 5;
+
+function setup() {
+    const container = document.getElementById('canvas-container');
+    let cnv = createCanvas(container.offsetWidth, container.offsetHeight);
+    cnv.parent('canvas-container');
+    container.insertBefore(cnv.elt, container.firstChild);
+    textFont('DM Mono');
+
+    // Scale layout to actual canvas dimensions
+    const scale = width / 440;
+    TILE_SIZE = Math.round(320 * scale);
+    TILE_CX   = Math.round(width / 2);
+    // Centre tile between chrome bottom and carousel top
+    // carouselTop = height - 140 - SWATCH/2 - 22
+    const chromeEl    = document.getElementById('app-chrome');
+    const chromeBottom = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
+    const carouselTop  = height - Math.round(140 * scale) - Math.round(SWATCH/2) - 22;
+    TILE_CY = Math.round((chromeBottom + carouselTop) / 2);
+    SWATCH    = Math.round(108 * scale);
+    GAP       = Math.round(18  * scale);
+    STEP      = SWATCH + GAP;
+    START_X   = Math.round(62  * scale);
+
+    // Default personal glaze definitions
+    window._defaultGlazeDefs = [
+        { name:"White",     rgb:[248,246,240], seed:1.0,  flowScale:2.2, poolScale:5.0, darkF:0.82, lightF:1.06, specP:0.18 },
+        { name:"Cobalt",    rgb:[38, 66, 148], seed:23,   flowScale:2.8, poolScale:4.2, darkF:0.50, lightF:1.38, specP:0.55 },
+        { name:"Forest",    rgb:[38, 98,  56], seed:37,   flowScale:3.1, poolScale:5.8, darkF:0.48, lightF:1.22, specP:0.35 },
+        { name:"Turquoise", rgb:[45, 188,170], seed:41,   flowScale:2.5, poolScale:4.6, darkF:0.55, lightF:1.32, specP:0.60 },
+        { name:"Walnut",    rgb:[101,67,  33], seed:55,   flowScale:3.8, poolScale:6.2, darkF:0.42, lightF:1.18, specP:0.20 },
+        { name:"Rust",      rgb:[183,65,  14], seed:62,   flowScale:2.9, poolScale:5.1, darkF:0.48, lightF:1.28, specP:0.30 },
+        { name:"Straw",     rgb:[220,185,138], seed:78,   flowScale:2.0, poolScale:4.8, darkF:0.72, lightF:1.10, specP:0.16 },
+    ];
+    // Glaze definitions — rgb + texture personality
+    const defs = [
+        { name:"White",     rgb:[248,246,240], seed:1.0,  flowScale:2.2, poolScale:5.0, darkF:0.82, lightF:1.06, specP:0.18 },
+        { name:"Cobalt",    rgb:[38, 66, 148], seed:23,   flowScale:2.8, poolScale:4.2, darkF:0.50, lightF:1.38, specP:0.55 },
+        { name:"Forest",    rgb:[38, 98,  56], seed:37,   flowScale:3.1, poolScale:5.8, darkF:0.48, lightF:1.22, specP:0.35 },
+        { name:"Turquoise", rgb:[45, 188,170], seed:41,   flowScale:2.5, poolScale:4.6, darkF:0.55, lightF:1.32, specP:0.60 },
+        { name:"Walnut",    rgb:[101,67,  33], seed:55,   flowScale:3.8, poolScale:6.2, darkF:0.42, lightF:1.18, specP:0.20 },
+        { name:"Rust",      rgb:[183,65,  14], seed:62,   flowScale:2.9, poolScale:5.1, darkF:0.48, lightF:1.28, specP:0.30 },
+        { name:"Straw",     rgb:[220,185,138], seed:78,   flowScale:2.0, poolScale:4.8, darkF:0.72, lightF:1.10, specP:0.16 },
+    ];
+
+    studioGlazes = buildGlazes(defs);
+}
+
+// Convert a hex color string to rgb array
+function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1,3),16);
+    const g = parseInt(hex.slice(3,5),16);
+    const b = parseInt(hex.slice(5,7),16);
+    return [r, g, b];
+}
+
+// Convert rgb array to hex
+function rgbToHex(rgb) {
+    return '#' + rgb.map(v => Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
+}
+
+// Build glaze objects from a def array — simple flat colors, no textures.
+function buildGlazes(defs) {
+    return defs.map((def, i) => {
+        const rgb = def.rgb || hexToRgb(def.color || '#888888');
+        return {
+            name: def.name,
+            rgb,
+            _col: null,
+            get col() { if (!this._col) this._col = color(...this.rgb); return this._col; }
+        };
+    });
+}
+
+// Flag that glazes need rebuilding (safe to call outside p5 context)
+let _glazesDirty = true;
+
+function loadActiveGlazes() {
+    resetGlazeSelection();
+    _glazesDirty = true;
+
+    // Update the active studio bar immediately
+    const bar    = document.getElementById('active-studio-bar');
+    const nameEl = document.getElementById('active-studio-name');
+    if (activeStudioCode) {
+        const studioData = JSON.parse(localStorage.getItem('sga_studio_' + activeStudioCode) || '{}');
+        if (bar)    bar.classList.add('visible');
+        if (nameEl) nameEl.textContent = studioData.name || activeStudioCode;
+    } else {
+        if (bar) bar.classList.remove('visible');
+    }
+
+    // Reset carousel scroll
+    scrollX = 0; targetScrollX = 0;
+    if (typeof redraw === 'function') redraw();
+}
+
+// Rebuild studioGlazes inside p5 context (called from draw)
+function rebuildGlazesIfDirty() {
+    if (!_glazesDirty) return;
+    _glazesDirty = false;
+
+    if (activeStudioCode) {
+        const studioData = JSON.parse(localStorage.getItem('sga_studio_' + activeStudioCode) || '{}');
+        studioGlazes = buildGlazes(studioData.glazes || []);
+    } else {
+        studioGlazes = []; // no studio active = empty carousel
+    }
+
+    // Force carousel scroll reset
+    scrollX = 0; targetScrollX = 0;
+}
+
+// Set a studio as active from the profile overlay
+function setActiveStudio(code) {
+    activeStudioCode = (activeStudioCode === code) ? null : code;
+
+    // Update active studio bar
+    const bar    = document.getElementById('active-studio-bar');
+    const nameEl = document.getElementById('active-studio-name');
+    if (activeStudioCode) {
+        const studioData = JSON.parse(localStorage.getItem('sga_studio_' + activeStudioCode) || '{}');
+        if (bar)    bar.classList.add('visible');
+        if (nameEl) nameEl.textContent = studioData.name || activeStudioCode;
+    } else {
+        if (bar) bar.classList.remove('visible');
+    }
+
+    // Mark dirty so draw() rebuilds glazes inside p5 context
+    _glazesDirty = true;
+    selectedL1 = null;
+    selectedL2 = null;
+    mixCanvas  = null;
+    scrollX = 0;
+    targetScrollX = 0;
+
+    renderProfileStudios();
+    updateMixerUI();
+}
+
+function draw() {
+    if (activeTab !== 'mixer') return;
+    rebuildGlazesIfDirty();
+    background('#faf8f5');
+    drawTile();
+    drawCarousel();
+}
+
+// Helper — rounded rect clip path
+function rrPath(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+    ctx.closePath();
+}
+
+function drawTile() {
+    const tx = TILE_CX - TILE_SIZE/2;
+    const ty = TILE_CY - TILE_SIZE/2;
+    const ctx = drawingContext;
+
+    rectMode(CENTER);
+    noStroke();
+    drawingContext.shadowColor   = 'rgba(0,0,0,0.14)';
+    drawingContext.shadowBlur    = 24;
+    drawingContext.shadowOffsetY = 10;
+
+    if (selectedL1) {
+        let displayCol = selectedL1.col;
+        if (selectedL2) displayCol = lerpColor(selectedL1.col, selectedL2.col, 0.65);
+
+        fill(displayCol);
+        square(TILE_CX, TILE_CY, TILE_SIZE, 8);
+        drawingContext.shadowColor = 'transparent';
+
+        // Tint logo/wordmark from the display colour
+        tintLogo(displayCol);
+        tintWordmark(displayCol);
+
+        // Label — pick black or white based on luminance
+        const r = red(displayCol), g = green(displayCol), b = blue(displayCol);
+        const lum = 0.299*r + 0.587*g + 0.114*b;
+        fill(lum > 140 ? color(0,0,0,190) : color(255,255,255,220));
+        textAlign(CENTER, CENTER);
+        if (selectedL2) {
+            textSize(12); textStyle(NORMAL);
+            text(`${selectedL2.name}  ›  ${selectedL1.name}`, TILE_CX, TILE_CY + TILE_SIZE/2 - 22);
+            textSize(26); textStyle(BOLD);
+            text("Mix", TILE_CX, TILE_CY - 10);
+        } else {
+            textSize(22); textStyle(BOLD);
+            text(selectedL1.name, TILE_CX, TILE_CY - 8);
+            textSize(10); textStyle(NORMAL);
+            text("BASE LAYER", TILE_CX, TILE_CY + 22);
+        }
+    } else {
+        fill('#ece8e1');
+        square(TILE_CX, TILE_CY, TILE_SIZE, 8);
+        drawingContext.shadowColor = 'transparent';
+        fill('#b5a898');
+        textAlign(CENTER, CENTER);
+        textSize(13); textStyle(NORMAL);
+        if (studioGlazes.length === 0) {
+            if (activeStudioCode) {
+                text("NO GLAZES IN THIS STUDIO", TILE_CX, TILE_CY - 6);
+                textSize(10);
+                text("add glazes in studio settings", TILE_CX, TILE_CY + 14);
+            } else {
+                text("NO STUDIO SELECTED", TILE_CX, TILE_CY - 6);
+                textSize(10);
+                text("set a studio active in your profile", TILE_CX, TILE_CY + 14);
+            }
+        } else {
+            text("SELECT A GLAZE BELOW", TILE_CX, TILE_CY - 6);
+            textSize(10);
+            text("to preview on tile", TILE_CX, TILE_CY + 14);
+        }
+    }
+    rectMode(CORNER);
+    textStyle(NORMAL);
+}
+
+function drawCarousel() {
+    scrollX = lerp(scrollX, targetScrollX, 0.18);
+    const carouselY = height - 140;
+    const ctx = drawingContext;
+
+    push();
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, carouselY - SWATCH/2 - 22, width, SWATCH + 64);
+    ctx.clip();
+    translate(scrollX, 0);
+
+    for (let i = 0; i < studioGlazes.length; i++) {
+        const g  = studioGlazes[i];
+        const cx = START_X + i * STEP;
+        const cy = carouselY;
+        g.worldX = cx;
+        g.worldY = cy;
+
+        const isBase = selectedL1 === g;
+        const isTop  = selectedL2 === g;
+        const lift   = (isBase || isTop) ? -6 : 0;
+        const sy     = cy + lift;
+        const sx     = cx - SWATCH/2;
+        const stY    = sy - SWATCH/2;
+
+        // Shadow + flat fill
+        drawingContext.shadowColor   = isBase||isTop ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.10)';
+        drawingContext.shadowBlur    = isBase||isTop ? 18 : 8;
+        drawingContext.shadowOffsetY = isBase||isTop ? 8  : 3;
+        fill(g.col);
+        rectMode(CENTER);
+        square(cx, sy, SWATCH, 12);
+        drawingContext.shadowColor = 'transparent';
+
+        // Selection ring
+        noFill();
+        if (isBase)      { stroke('#3a6bc4'); strokeWeight(5); }
+        else if (isTop)  { stroke('#c45a1a'); strokeWeight(5); }
+        else             { stroke('#e2dbd2'); strokeWeight(2); }
+        rectMode(CENTER);
+        square(cx, sy, SWATCH, 12);
+        noStroke();
+
+        // B/T badge
+        if (isBase || isTop) {
+            fill(isBase ? color(58,107,196) : color(196,90,26));
+            circle(cx + SWATCH/2 - 2, sy - SWATCH/2 + 2, 18);
+            fill(255);
+            textAlign(CENTER, CENTER);
+            textSize(9); textStyle(BOLD);
+            text(isBase ? 'B' : 'T', cx + SWATCH/2 - 2, sy - SWATCH/2 + 2);
+        }
+
+        // Name label
+        noStroke();
+        fill(isBase||isTop ? '#1c1814' : '#6b5e52');
+        textAlign(CENTER, CENTER);
+        textSize(10);
+        textStyle(isBase||isTop ? BOLD : NORMAL);
+        text(g.name.toUpperCase(), cx, sy + SWATCH/2 + 16);
+    }
+
+    ctx.restore();
+    pop();
+
+    const hintAlpha = map(abs(targetScrollX), 0, 60, 180, 0, true);
+    if (hintAlpha > 0) {
+        fill(red(color('#b5a898')), green(color('#b5a898')), blue(color('#b5a898')), hintAlpha);
+        textAlign(CENTER, CENTER);
+        textSize(10); textStyle(NORMAL);
+        text("← swipe to browse →", width/2, height - 28);
+    }
+}
+
+function isOverlayOpen() {
+    const overlays = ['profile-overlay', 'delete-confirm', 'lightbox', 'studio-mgmt-overlay'];
+    return overlays.some(id => {
+        const el = document.getElementById(id);
+        return el && (el.classList.contains('open') || el.style.display === 'flex');
+    }) || document.getElementById('studio-mgmt-overlay')?.classList.contains('open');
+}
+
+function mousePressed() {
+    if (isOverlayOpen()) return;
+    if (activeTab !== 'mixer') return;
+    dragStartX = mouseX; dragStartScroll = targetScrollX; isDragging = false;
+}
+
+function mouseDragged() {
+    if (isOverlayOpen()) return;
+    if (activeTab !== 'mixer') return;
+    let dx = mouseX - dragStartX;
+    if (abs(dx) > DRAG_THRESHOLD) isDragging = true;
+    if (isDragging) {
+        let totalWidth = (studioGlazes.length - 1) * STEP;
+        targetScrollX = constrain(dragStartScroll + dx, -(totalWidth - (width - START_X*2)), 0);
+    }
+}
+
+function mouseReleased() {
+    if (isOverlayOpen()) return;
+    if (activeTab !== 'mixer') return;
+    if (isDragging) return;
+    for (let g of studioGlazes) {
+        let wx = g.worldX + scrollX;
+        if (mouseX >= wx - SWATCH/2 && mouseX <= wx + SWATCH/2 &&
+            mouseY >= g.worldY - SWATCH/2 - 6 && mouseY <= g.worldY + SWATCH/2 + 6) {
+            handleSelect(g); return;
+        }
+    }
+}
+
+function handleSelect(g) {
+    if (!selectedL1)           { selectedL1 = g; }
+    else if (g === selectedL1) { selectedL1 = selectedL2; selectedL2 = null; }
+    else if (!selectedL2)      { selectedL2 = g; }
+    else if (g === selectedL2) { selectedL2 = null; }
+    else                       { selectedL2 = g; }
+    updateMixerUI();
+}
+
+function updateMixerUI() {
+    if (!selectedL1) {
+        tintLogoGrey(); tintWordmarkGrey();
+    } else if (!selectedL2) {
+        tintLogo(selectedL1.col); tintWordmark(selectedL1.col);
+    } else {
+        let mixCol = lerpColor(selectedL1.col, selectedL2.col, 0.65);
+        tintLogo(mixCol); tintWordmark(mixCol);
+    }
+}
+
+function touchStarted() {
+    if (isOverlayOpen()) return false;
+    if (activeTab !== 'mixer') return false;
+    dragStartX = mouseX; dragStartScroll = targetScrollX; isDragging = false;
+    return false;
+}
+function touchMoved()  { if (!isOverlayOpen() && activeTab === 'mixer') mouseDragged();  return false; }
+function touchEnded()  { if (!isOverlayOpen() && activeTab === 'mixer') mouseReleased(); return false; }
+
+// ═══════════════════════════════════════════════════════
+//  PIECE TRACKER
+// ═══════════════════════════════════════════════════════
+const STAGES = ['Greenware','Bisque','Glaze','Fired'];
+let pieces = [];
+let pieceCounter = 0;
+
+function addPiece() {
+    const id = ++pieceCounter;
+    pieces.push({ id, name: '', expanded: true, stages: { Greenware:{}, Bisque:{}, Glaze:{}, Fired:{} } });
+    renderPieces();
+}
+
+// ── Hold-to-delete ───────────────────────────────────────────────────────────
+let holdTimer    = null;
+let holdTarget   = null;
+let pendingDelete = null;
+
+function startHold(id, headerEl) {
+    holdTarget = headerEl;
+    headerEl.classList.add('holding');
+    const bar = headerEl.querySelector('.piece-hold-bar');
+    if (bar) { bar.classList.remove('animating'); void bar.offsetWidth; bar.classList.add('animating'); }
+    holdTimer = setTimeout(() => {
+        endHold();
+        pendingDelete = id;
+        document.getElementById('delete-confirm').classList.add('open');
+    }, 900);
+}
+
+function endHold() {
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    if (holdTarget) {
+        holdTarget.classList.remove('holding');
+        const bar = holdTarget.querySelector('.piece-hold-bar');
+        if (bar) bar.classList.remove('animating');
+        holdTarget = null;
+    }
+}
+
+function confirmDelete() {
+    if (pendingDelete !== null) {
+        pieces = pieces.filter(p => p.id !== pendingDelete);
+        pendingDelete = null;
+        renderPieces();
+    }
+    document.getElementById('delete-confirm').classList.remove('open');
+}
+
+function cancelDelete() {
+    pendingDelete = null;
+    document.getElementById('delete-confirm').classList.remove('open');
+}
+
+// Dismiss on backdrop click
+document.getElementById('delete-confirm').addEventListener('click', function(e) {
+    if (e.target === this) cancelDelete();
+});
+
+function togglePiece(id) {
+    const piece = pieces.find(p => p.id === id);
+    if (!piece) return;
+    piece.expanded = !piece.expanded;
+    // Update DOM directly — no full re-render needed
+    const card = document.querySelector(`.piece-card[data-id="${id}"]`);
+    if (!card) return;
+    const body    = card.querySelector('.piece-body');
+    const chevron = card.querySelector('.piece-chevron');
+    body.classList.toggle('open', piece.expanded);
+    chevron.classList.toggle('open', piece.expanded);
+}
+
+function renderPieces() {
+    const list  = document.getElementById('piece-list');
+    const empty = document.getElementById('empty-state');
+    Array.from(list.querySelectorAll('.piece-card')).forEach(c => c.remove());
+
+    if (pieces.length === 0) { empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+
+    pieces.forEach(piece => {
+        const card = document.createElement('div');
+        card.className = 'piece-card';
+        card.dataset.id = piece.id;
+
+        const filledCount = STAGES.filter(s =>
+            (piece.stages[s].photos && piece.stages[s].photos.length) || (piece.stages[s].notes && piece.stages[s].notes.trim())
+        ).length;
+
+        const progressSegs = STAGES.map((s, i) => {
+            let cls = 'progress-seg';
+            if (i < filledCount) cls += ' done';
+            else if (i === filledCount) cls += ' active';
+            return `<div class="${cls}"></div>`;
+        }).join('');
+
+        const stageRows = STAGES.map(stage => {
+            const d = piece.stages[stage];
+            const photos = d.photos || [];
+            const hasPhotos = photos.length > 0;
+            // Show only the first photo as a thumbnail; tap to open full lightbox
+            const thumbHtml = hasPhotos
+                ? `<img class="photo-thumb" src="${photos[0]}" alt="${stage}"
+                       onclick="openLightbox(${piece.id},'${stage}',0)">
+                   ${photos.length > 1 ? `<div class="photo-count-badge">${photos.length}</div>` : ''}`
+                : `<span class="plus-icon">+</span>`;
+            return `
+            <div class="stage-row">
+                <div class="stage-label">${stage}</div>
+                <div class="stage-body">
+                    <div class="photo-slot-single ${hasPhotos ? 'has-photo' : ''}">
+                        ${thumbHtml}
+                        <input type="file" accept="image/*" multiple
+                            onchange="handlePhotos(event,${piece.id},'${stage}')"
+                            ${hasPhotos ? 'style="display:none"' : ''}>
+                    </div>
+                    <textarea class="stage-notes" rows="3"
+                        placeholder="Notes on ${stage.toLowerCase()}…"
+                        oninput="handleNotes(event,${piece.id},'${stage}')"
+                    >${d.notes || ''}</textarea>
+                </div>
+            </div>`;
+        }).join('');
+
+        const isOpen = piece.expanded !== false;
+        card.innerHTML = `
+            <div class="piece-card-header" onclick="togglePiece(${piece.id})" style="cursor:pointer;"
+                data-id="${piece.id}">
+                <input class="piece-name-input" type="text"
+                    placeholder="Untitled piece" value="${piece.name}"
+                    oninput="handleName(event,${piece.id})"
+                    onclick="event.stopPropagation()">
+                <button class="piece-chevron ${isOpen ? 'open' : ''}"
+                    onclick="event.stopPropagation();togglePiece(${piece.id})">▼</button>
+            </div>
+            <div class="piece-body ${isOpen ? 'open' : ''}">
+                <div class="piece-progress">${progressSegs}</div>
+                <div class="piece-stages">${stageRows}</div>
+            </div>
+        `;
+        list.appendChild(card);
+
+        // Attach hold-to-delete listeners to the header
+        const header = card.querySelector('.piece-card-header');
+
+        // Inject the hold progress bar
+        const bar = document.createElement('div');
+        bar.className = 'piece-hold-bar';
+        header.appendChild(bar);
+
+        const onStart = (e) => {
+            // Don't trigger hold when interacting with input or chevron
+            if (e.target.closest('input, button, textarea')) return;
+            startHold(piece.id, header);
+        };
+        const onEnd = () => endHold();
+
+        header.addEventListener('mousedown',  onStart);
+        header.addEventListener('touchstart', onStart, { passive: true });
+        header.addEventListener('mouseup',    onEnd);
+        header.addEventListener('mouseleave', onEnd);
+        header.addEventListener('touchend',   onEnd);
+        header.addEventListener('touchcancel',onEnd);
+    });
+
+    // Re-apply active search so filter persists after re-render
+    if (searchQuery) filterPieces(searchQuery);
+}
+
+function handleName(e, id) {
+    const p = pieces.find(p => p.id === id);
+    if (p) p.name = e.target.value;
+    // Re-apply active search filter so renamed pieces update live
+    const q = document.getElementById('search-input');
+    if (q && q.value.trim()) filterPieces(q.value);
+}
+
+let searchQuery = '';
+
+function filterPieces(query) {
+    searchQuery = query.trim().toLowerCase();
+    const clearBtn = document.getElementById('search-clear');
+    if (clearBtn) clearBtn.style.display = searchQuery ? 'block' : 'none';
+
+    const cards  = document.querySelectorAll('.piece-card');
+    const noRes  = document.getElementById('no-results');
+    const empty  = document.getElementById('empty-state');
+    let visible  = 0;
+
+    cards.forEach(card => {
+        const nameEl = card.querySelector('.piece-name-input');
+        const name   = (nameEl ? nameEl.value : '').toLowerCase();
+        const match  = !searchQuery || name.includes(searchQuery);
+        card.style.display = match ? '' : 'none';
+        if (match) visible++;
+    });
+
+    // Show "no results" only when there are pieces but none match
+    if (noRes) {
+        noRes.style.display = (pieces.length > 0 && visible === 0) ? 'block' : 'none';
+    }
+    if (empty) {
+        empty.style.display = pieces.length === 0 ? 'block' : 'none';
+    }
+}
+
+function clearSearch() {
+    const input = document.getElementById('search-input');
+    if (input) input.value = '';
+    filterPieces('');
+}
+
+function handleNotes(e, id, stage) {
+    const p = pieces.find(p => p.id === id);
+    if (p) p.stages[stage].notes = e.target.value;
+    updateProgressBar(id);
+}
+
+function handlePhotos(e, id, stage) {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    const piece = pieces.find(p => p.id === id);
+    if (!piece) return;
+    if (!piece.stages[stage].photos) piece.stages[stage].photos = [];
+
+    let loaded = 0;
+    files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = ev => {
+            piece.stages[stage].photos.push(ev.target.result);
+            loaded++;
+            if (loaded === files.length) renderPieces();
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+function updateProgressBar(id) {
+    const piece = pieces.find(p => p.id === id);
+    if (!piece) return;
+    const card = document.querySelector(`.piece-card[data-id="${id}"]`);
+    if (!card) return;
+    const segs = card.querySelectorAll('.progress-seg');
+    const filledCount = STAGES.filter(s =>
+        piece.stages[s].photo || (piece.stages[s].notes && piece.stages[s].notes.trim())
+    ).length;
+    segs.forEach((seg, i) => {
+        seg.className = 'progress-seg';
+        if (i < filledCount) seg.classList.add('done');
+        else if (i === filledCount) seg.classList.add('active');
+    });
+}
+
+
+
+// ═══════════════════════════════════════════════════════
+//  SPLASH SCREEN
+// ═══════════════════════════════════════════════════════
+(function runSplash() {
+    const layerOrder = ['spl-l5','spl-l4','spl-l3','spl-l2','spl-l1'];
+    const svg        = document.getElementById('splash-logo-svg');
+    const logoWrap   = document.getElementById('splash-logo-wrap');
+    const wordWrap   = document.getElementById('splash-wordmark-wrap');
+    const splash     = document.getElementById('splash-screen');
+    const container  = document.getElementById('canvas-container');
+
+    // ── Position splash elements to exactly match home screen elements ────────
+    // We use requestAnimationFrame to ensure the browser has fully laid out
+    // the home screen before measuring, then wait for fonts too.
+    function alignToHome() {
+        const containerRect = container.getBoundingClientRect();
+        const homeLogo = document.getElementById('home-logo-wrap');
+        const homeWord = document.getElementById('home-wordmark-wrap');
+        if (!homeLogo || !homeWord) return;
+
+        const logoRect = homeLogo.getBoundingClientRect();
+        const wordRect = homeWord.getBoundingClientRect();
+
+        // Only apply if measurements look valid (non-zero size)
+        if (logoRect.width === 0 || wordRect.width === 0) {
+            requestAnimationFrame(alignToHome);
+            return;
+        }
+
+        // Coords relative to the canvas-container (which clips us)
+        logoWrap.style.left  = (logoRect.left - containerRect.left) + 'px';
+        logoWrap.style.top   = (logoRect.top  - containerRect.top)  + 'px';
+        logoWrap.style.width = logoRect.width + 'px';
+
+        wordWrap.style.left  = (wordRect.left - containerRect.left) + 'px';
+        wordWrap.style.top   = (wordRect.top  - containerRect.top)  + 'px';
+        wordWrap.style.width = wordRect.width + 'px';
+    }
+
+    // Wait for both layout and fonts before measuring
+    requestAnimationFrame(() => {
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(() => requestAnimationFrame(alignToHome));
+        } else {
+            requestAnimationFrame(alignToHome);
+        }
+    });
+
+    // Phase 1 (150ms): SVG rises into position and becomes visible
+    setTimeout(() => {
+        svg.classList.add('visible');
+    }, 150);
+
+    // Phase 2 (250–570ms): each layer fades in bottom → top (accordion feel)
+    layerOrder.forEach((id, i) => {
+        setTimeout(() => {
+            const el = document.getElementById(id);
+            if (el) el.classList.add('expand');
+        }, 250 + i * 80);
+    });
+
+    // Phase 3 (750ms): wordmark fades + rises into its exact home position
+    setTimeout(() => {
+        wordWrap.classList.add('rise');
+    }, 750);
+
+    // Phase 4 (2000ms): fade the dark overlay, home screen is already aligned beneath
+    setTimeout(() => {
+        splash.classList.add('fade-out');
+        setTimeout(() => {
+            splash.classList.add('hidden');
+            showHome();
+        }, 680);
+    }, 2000);
+})();
+
+// ═══════════════════════════════════════════════════════
+//  AUTH  &  SESSION
+// ═══════════════════════════════════════════════════════
+let currentUser = null;   // { username, studios: [{code, name, role}] }
+let authMode    = 'login'; // 'login' | 'create'
+
+function showHome() {
+    document.getElementById('home-screen').classList.remove('hidden');
+    document.getElementById('auth-screen').classList.add('hidden');
+    // Pause canvas
+    const cnv = document.querySelector('#canvas-container canvas');
+    if (cnv) cnv.style.visibility = 'hidden';
+    if (typeof noLoop === 'function') noLoop();
+}
+
+function showAuth(mode) {
+    authMode = mode;
+    document.getElementById('home-screen').classList.add('hidden');
+    document.getElementById('auth-screen').classList.remove('hidden');
+
+    const title    = document.getElementById('auth-title');
+    const subtitle = document.getElementById('auth-subtitle');
+    const formLogin  = document.getElementById('form-login');
+    const formCreate = document.getElementById('form-create');
+
+    if (mode === 'login') {
+        title.textContent    = 'Welcome back';
+        subtitle.textContent = 'Log In';
+        formLogin.style.display  = 'flex';
+        formCreate.style.display = 'none';
+    } else {
+        title.textContent    = 'Get started';
+        subtitle.textContent = 'Create Account';
+        formLogin.style.display  = 'none';
+        formCreate.style.display = 'flex';
+        const submitBtn = document.getElementById('create-submit-btn');
+        if (submitBtn) { submitBtn.style.display = 'block'; submitBtn.textContent = 'Create Account'; submitBtn.onclick = doCreate; }
+    }
+    // Clear errors
+    document.getElementById('login-error').textContent  = '';
+    document.getElementById('create-error').textContent = '';
+}
+
+
+
+function generateStudioCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return code;
+}
+
+function doLogin() {
+    const username = document.getElementById('login-user').value.trim();
+    const password = document.getElementById('login-pass').value;
+    const errEl    = document.getElementById('login-error');
+
+    if (!username || !password) { errEl.textContent = 'Please fill in all fields.'; return; }
+
+    const stored = localStorage.getItem('sga_user_' + username.toLowerCase());
+    if (!stored) { errEl.textContent = 'No account found for that username.'; return; }
+
+    const account = JSON.parse(stored);
+    if (account.password !== btoa(password)) { errEl.textContent = 'Incorrect password.'; return; }
+
+    currentUser = { username: account.username, studios: account.studios || [] };
+    enterApp();
+}
+
+function doCreate() {
+    const username = document.getElementById('create-user').value.trim();
+    const password = document.getElementById('create-pass').value;
+    const errEl    = document.getElementById('create-error');
+
+    if (!username || !password) { errEl.textContent = 'Please fill in all fields.'; return; }
+    if (username.length < 3)    { errEl.textContent = 'Username must be at least 3 characters.'; return; }
+    if (password.length < 6)    { errEl.textContent = 'Password must be at least 6 characters.'; return; }
+
+    const key = 'sga_user_' + username.toLowerCase();
+    if (localStorage.getItem(key)) { errEl.textContent = 'That username is already taken.'; return; }
+
+    const account = { username, password: btoa(password), studios: [] };
+    localStorage.setItem(key, JSON.stringify(account));
+    currentUser = { username, studios: [] };
+    enterApp();
+}
+
+function openProfileOverlay() {
+    if (!currentUser) { showHome(); return; }
+    const parts    = currentUser.username.trim().split(/\s+/);
+    const initials = parts.length >= 2
+        ? (parts[0][0] + parts[1][0]).toUpperCase()
+        : currentUser.username.slice(0,2).toUpperCase();
+
+    const avatarEl = document.getElementById('profile-sheet-avatar');
+    const nameEl   = document.getElementById('profile-sheet-name');
+    if (avatarEl) avatarEl.textContent = initials;
+    if (nameEl)   nameEl.textContent   = currentUser.username;
+
+    // Reset join input
+    const joinInput = document.getElementById('profile-join-studio-input');
+    const joinCode  = document.getElementById('profile-join-code');
+    const joinErr   = document.getElementById('profile-join-error');
+    if (joinInput) joinInput.style.display = 'none';
+    if (joinCode)  joinCode.value = '';
+    if (joinErr)   joinErr.textContent = '';
+
+    renderProfileStudios();
+
+    document.getElementById('profile-overlay').classList.add('open');
+}
+
+function renderProfileStudios() {
+    const list = document.getElementById('profile-studios-list');
+    if (!list) return;
+    const studios = currentUser.studios || [];
+
+    if (studios.length === 0) {
+        list.innerHTML = '<p style="font-size:11px;color:#c8bfb5;text-align:center;margin:0 0 12px;letter-spacing:0.5px">No studios yet</p>';
+        return;
+    }
+
+    list.innerHTML = studios.map((s, i) => {
+        const isActive = activeStudioCode === s.code;
+        const stData   = JSON.parse(localStorage.getItem('sga_studio_' + s.code) || '{}');
+        const glazeCount = (stData.glazes || []).length;
+        return `
+        <div class="studio-row" data-index="${i}">
+            <div class="studio-row-info">
+                <div class="studio-row-name" id="studio-name-${i}">${s.name || 'Studio'}</div>
+                <div class="studio-row-code">${s.code}${glazeCount ? ' · ' + glazeCount + ' glaze' + (glazeCount !== 1 ? 's' : '') : ''}</div>
+            </div>
+            <div class="studio-row-actions">
+                <button class="studio-set-active-btn ${isActive ? 'active-studio' : ''}"
+                    onclick="setActiveStudio('${s.code}')">
+                    ${isActive ? '✓ Active' : 'Set Active'}
+                </button>
+                ${s.role === 'admin'
+                    ? `<button class="studio-action-btn" title="Manage studio" onclick="openStudioMgmt('${s.code}')">✎</button>`
+                    : `<button class="studio-action-btn remove" title="Leave studio" onclick="promptLeaveStudio('${s.code}')">×</button>`}
+            </div>
+        </div>`;
+    }).join('');
+
+
+}
+
+let _pendingLeaveCode = null;
+
+function promptLeaveStudio(code) {
+    _pendingLeaveCode = code;
+    const el = document.getElementById('profile-leave-confirm');
+    if (el) el.style.display = 'flex';
+}
+
+function cancelLeaveStudio() {
+    _pendingLeaveCode = null;
+    const el = document.getElementById('profile-leave-confirm');
+    if (el) el.style.display = 'none';
+}
+
+function confirmLeaveStudio() {
+    if (!_pendingLeaveCode || !currentUser) return;
+
+    const code = _pendingLeaveCode;
+    _pendingLeaveCode = null;
+
+    // Remove from user's studios list
+    const idx = (currentUser.studios || []).findIndex(s => s.code === code);
+    if (idx !== -1) {
+        currentUser.studios.splice(idx, 1);
+        saveCurrentUser();
+    }
+
+    // Remove from studio's member list
+    const key = 'sga_studio_' + code;
+    const studioData = JSON.parse(localStorage.getItem(key) || '{}');
+    if (studioData.members) {
+        studioData.members = studioData.members.filter(m => m.username !== currentUser.username);
+        localStorage.setItem(key, JSON.stringify(studioData));
+    }
+
+    // Clear active studio if it was this one
+    if (activeStudioCode === code) {
+        activeStudioCode = null;
+        _glazesDirty = true;
+        const bar = document.getElementById('active-studio-bar');
+        if (bar) bar.classList.remove('visible');
+    }
+
+    const el = document.getElementById('profile-leave-confirm');
+    if (el) el.style.display = 'none';
+    renderProfileStudios();
+    updateMixerUI();
+}
+
+function showProfileJoinStudio() {
+    const el = document.getElementById('profile-join-studio-input');
+    if (el) {
+        el.style.display = 'block';
+        const input = document.getElementById('profile-join-code');
+        if (input) { input.value = ''; input.focus(); }
+        const err = document.getElementById('profile-join-error');
+        if (err) err.textContent = '';
+    }
+}
+
+function hideProfileJoinStudio() {
+    const el = document.getElementById('profile-join-studio-input');
+    if (el) el.style.display = 'none';
+    const input = document.getElementById('profile-join-code');
+    if (input) input.value = '';
+    const err = document.getElementById('profile-join-error');
+    if (err) err.textContent = '';
+}
+
+function profileJoinStudio() {
+    const code   = (document.getElementById('profile-join-code').value || '').trim().toUpperCase();
+    const errEl  = document.getElementById('profile-join-error');
+    if (code.length !== 6) { errEl.textContent = 'Enter a valid 6-character code.'; return; }
+
+    const studioData = localStorage.getItem('sga_studio_' + code);
+    if (!studioData) { errEl.textContent = 'Studio code not found.'; return; }
+
+    const studio = JSON.parse(studioData);
+    const studios = currentUser.studios || [];
+
+    if (studios.find(s => s.code === code)) { errEl.textContent = 'Already a member of this studio.'; return; }
+
+    const newStudio = { code, name: studio.name || 'Studio ' + code, role: 'member' };
+    studios.push(newStudio);
+    currentUser.studios = studios;
+    saveCurrentUser();
+
+    // Register this user as a member in the studio record
+    const members = studio.members || [];
+    if (!members.find(m => m.username === currentUser.username)) {
+        const joined = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        members.push({ username: currentUser.username, role: 'member', joined });
+        studio.members = members;
+        localStorage.setItem('sga_studio_' + code, JSON.stringify(studio));
+    }
+
+    hideProfileJoinStudio();
+    renderProfileStudios();
+}
+
+function handleOverlayTap(e) {
+    if (e.target === document.getElementById('profile-overlay')) {
+        document.getElementById('profile-overlay').classList.remove('open');
+    }
+}
+
+function profileCreateStudio() {
+    if (!currentUser) return;
+
+    // Generate code and create a minimal studio record
+    const code   = generateStudioCode();
+    const joined = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    localStorage.setItem('sga_studio_' + code, JSON.stringify({
+        admin: currentUser.username,
+        name: '',
+        glazes: [],
+        members: [{ username: currentUser.username, role: 'admin', joined }]
+    }));
+
+    // Add to user's studios list
+    const studios = currentUser.studios || [];
+    studios.push({ code, name: 'New Studio', role: 'admin' });
+    currentUser.studios = studios;
+    saveCurrentUser();
+
+    // Go straight to the management page to fill in details
+    openStudioMgmt(code);
+}
+
+function promptRemoveStudio() {
+    const el = document.getElementById('mgmt-remove-confirm');
+    if (el) el.style.display = 'flex';
+}
+
+function cancelRemoveStudio() {
+    const el = document.getElementById('mgmt-remove-confirm');
+    if (el) el.style.display = 'none';
+}
+
+function confirmRemoveStudio() {
+    if (!currentMgmtCode || !currentUser) return;
+    // Find index in user's studios array
+    const studios = currentUser.studios || [];
+    const idx = studios.findIndex(s => s.code === currentMgmtCode);
+    if (idx !== -1) {
+        // Clear active studio if this was it
+        if (activeStudioCode === currentMgmtCode) {
+            activeStudioCode = null;
+            loadActiveGlazes();
+        }
+        studios.splice(idx, 1);
+        currentUser.studios = studios;
+        saveCurrentUser();
+    }
+    // Close management page and go back to profile
+    document.getElementById('studio-mgmt-overlay').classList.remove('open');
+    currentMgmtCode = null;
+    openProfileOverlay();
+}
+
+
+
+function removeStudio(index) {
+    const studios = currentUser.studios || [];
+    if (!studios[index]) return;
+    studios.splice(index, 1);
+    currentUser.studios = studios;
+    saveCurrentUser();
+    renderProfileStudios();
+}
+
+// ═══════════════════════════════════════════════════════
+//  STUDIO MANAGEMENT
+// ═══════════════════════════════════════════════════════
+let currentMgmtCode = null;
+
+function openStudioMgmt(code) {
+    currentMgmtCode = code;
+
+    // Close profile overlay first
+    document.getElementById('profile-overlay').classList.remove('open');
+
+    // Load studio data
+    const studioData = JSON.parse(localStorage.getItem('sga_studio_' + code) || '{}');
+
+    // Populate header
+    document.getElementById('studio-mgmt-title').textContent = studioData.name || 'New Studio';
+    document.getElementById('studio-mgmt-code-badge').textContent = code;
+    document.getElementById('mgmt-code-big').textContent = code;
+
+    // Populate info fields — leave name blank so user types their own
+    document.getElementById('mgmt-name').value     = studioData.name     || '';
+    document.getElementById('mgmt-desc').value     = studioData.desc     || '';
+    document.getElementById('mgmt-location').value = studioData.location || '';
+    document.getElementById('mgmt-contact').value  = studioData.contact  || '';
+
+    // Reset save button
+    const saveBtn = document.getElementById('mgmt-save-btn');
+    if (saveBtn) {
+        saveBtn.textContent = studioData.name ? 'Save Changes' : 'Create Studio';
+        saveBtn.classList.remove('saved');
+    }
+
+    // Render members
+    renderMgmtMembers(studioData);
+
+    // Render glazes
+    renderMgmtGlazes();
+
+    // Slide in
+    document.getElementById('studio-mgmt-overlay').classList.add('open');
+}
+
+function closeStudioMgmt() {
+    document.getElementById('studio-mgmt-overlay').classList.remove('open');
+    // Reload mixer if we were editing the active studio
+    if (currentMgmtCode && activeStudioCode === currentMgmtCode) loadActiveGlazes();
+    currentMgmtCode = null;
+    // Re-open profile overlay
+    openProfileOverlay();
+}
+
+function saveStudioInfo() {
+    if (!currentMgmtCode) return;
+    const key       = 'sga_studio_' + currentMgmtCode;
+    const studioData = JSON.parse(localStorage.getItem(key) || '{}');
+
+    const name     = document.getElementById('mgmt-name').value.trim();
+    const desc     = document.getElementById('mgmt-desc').value.trim();
+    const location = document.getElementById('mgmt-location').value.trim();
+    const contact  = document.getElementById('mgmt-contact').value.trim();
+
+    studioData.name     = name     || studioData.name;
+    studioData.desc     = desc;
+    studioData.location = location;
+    studioData.contact  = contact;
+
+    localStorage.setItem(key, JSON.stringify(studioData));
+
+    // Update name in current user's studios array
+    if (currentUser && name) {
+        const studios = currentUser.studios || [];
+        const s = studios.find(s => s.code === currentMgmtCode);
+        if (s) { s.name = name; saveCurrentUser(); }
+        document.getElementById('studio-mgmt-title').textContent = name;
+    }
+
+    // Flash save button green
+    const btn = document.getElementById('mgmt-save-btn');
+    if (btn) {
+        btn.textContent = 'Saved ✓';
+        btn.classList.add('saved');
+        setTimeout(() => { btn.textContent = 'Save Changes'; btn.classList.remove('saved'); }, 2000);
+    }
+
+    // Refresh the profile studio list in the background
+    renderProfileStudios();
+}
+
+function renderMgmtMembers(studioData) {
+    const list    = document.getElementById('mgmt-members-list');
+    const members = studioData.members || [];
+
+    if (members.length === 0) {
+        list.innerHTML = '<p id="mgmt-no-members">No members have joined yet.<br>Share the code above to invite them.</p>';
+        return;
+    }
+
+    list.innerHTML = members.map((m, i) => `
+        <div class="member-row">
+            <div class="member-row-left">
+                <div class="member-row-name">${m.username}</div>
+                <div class="member-row-meta">${m.role === 'admin' ? 'Admin' : 'Member'}${m.joined ? ' · Joined ' + m.joined : ''}</div>
+            </div>
+            <div class="member-row-actions">
+                <span class="member-role-badge ${m.role === 'admin' ? 'admin' : ''}"
+                    onclick="toggleMemberRole('${currentMgmtCode}', ${i})"
+                    title="${m.role === 'admin' ? 'Demote to member' : 'Promote to admin'}">
+                    ${m.role === 'admin' ? 'Admin' : 'Member'}
+                </span>
+                ${m.username !== studioData.admin ? `<button class="member-remove-btn" onclick="removeMember('${currentMgmtCode}', ${i})">×</button>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function toggleMemberRole(code, index) {
+    const key        = 'sga_studio_' + code;
+    const studioData = JSON.parse(localStorage.getItem(key) || '{}');
+    const members    = studioData.members || [];
+    if (!members[index]) return;
+    // Don't demote the original admin
+    if (members[index].username === studioData.admin) return;
+    members[index].role = members[index].role === 'admin' ? 'member' : 'admin';
+    studioData.members  = members;
+    localStorage.setItem(key, JSON.stringify(studioData));
+    renderMgmtMembers(studioData);
+}
+
+function removeMember(code, index) {
+    const key        = 'sga_studio_' + code;
+    const studioData = JSON.parse(localStorage.getItem(key) || '{}');
+    const members    = studioData.members || [];
+    if (!members[index]) return;
+    members.splice(index, 1);
+    studioData.members = members;
+    localStorage.setItem(key, JSON.stringify(studioData));
+    renderMgmtMembers(studioData);
+}
+
+
+// ─── Studio Glaze Management ────────────────────────────────────────────────
+function renderMgmtGlazes() {
+    if (!currentMgmtCode) return;
+    const studioData = JSON.parse(localStorage.getItem('sga_studio_' + currentMgmtCode) || '{}');
+    const glazes     = studioData.glazes || [];
+    const list       = document.getElementById('mgmt-glazes-list');
+    if (!list) return;
+
+    // Only show for admins
+    const section = document.getElementById('mgmt-glazes-section');
+    const myStudio = currentUser && currentUser.studios
+        ? currentUser.studios.find(s => s.code === currentMgmtCode)
+        : null;
+    if (section) section.style.display = (myStudio && myStudio.role === 'admin') ? 'block' : 'none';
+
+    if (glazes.length === 0) {
+        list.innerHTML = '<p style="font-size:11px;color:#c8bfb5;text-align:center;margin:0 0 12px">No glazes yet — add your first one below</p>';
+        return;
+    }
+
+    list.innerHTML = glazes.map((g, i) => `
+        <div class="glaze-card">
+            <div class="glaze-card-swatch" style="background:${g.color || '#cccccc'}">
+                <input type="color" value="${g.color || '#cccccc'}"
+                    oninput="updateGlazeField('${currentMgmtCode}',${i},'color',this.value)">
+            </div>
+            <div class="glaze-card-fields">
+                <input class="glaze-mini-input" type="text"
+                    placeholder="Glaze name" value="${g.name || ''}"
+                    oninput="updateGlazeField('${currentMgmtCode}',${i},'name',this.value)">
+                <div class="glaze-field-row">
+                    <input class="glaze-mini-input temp" type="text"
+                        placeholder="Temp (°F)" value="${g.temp || ''}"
+                        oninput="updateGlazeField('${currentMgmtCode}',${i},'temp',this.value)">
+                    <input class="glaze-mini-input" type="text"
+                        placeholder="Notes…" value="${g.notes || ''}"
+                        oninput="updateGlazeField('${currentMgmtCode}',${i},'notes',this.value)">
+                </div>
+            </div>
+            <button class="glaze-remove-btn" onclick="removeStudioGlaze('${currentMgmtCode}',${i})">×</button>
+        </div>
+    `).join('');
+}
+
+function addStudioGlaze() {
+    if (!currentMgmtCode) return;
+    const key        = 'sga_studio_' + currentMgmtCode;
+    const studioData = JSON.parse(localStorage.getItem(key) || '{}');
+    const glazes     = studioData.glazes || [];
+    glazes.push({ name: '', color: '#8c6a3f', temp: '', notes: '' });
+    studioData.glazes = glazes;
+    localStorage.setItem(key, JSON.stringify(studioData));
+    renderMgmtGlazes();
+    if (activeStudioCode === currentMgmtCode) loadActiveGlazes();
+}
+
+function updateGlazeField(code, index, field, value) {
+    const key        = 'sga_studio_' + code;
+    const studioData = JSON.parse(localStorage.getItem(key) || '{}');
+    const glazes     = studioData.glazes || [];
+    if (!glazes[index]) return;
+    glazes[index][field] = value;
+    studioData.glazes = glazes;
+    localStorage.setItem(key, JSON.stringify(studioData));
+    // Live-update swatch background for color changes
+    if (field === 'color') {
+        const cards = document.querySelectorAll('.glaze-card');
+        if (cards[index]) cards[index].querySelector('.glaze-card-swatch').style.background = value;
+    }
+    // Reload mixer if this studio is active
+    if (activeStudioCode === code && field === 'color') loadActiveGlazes();
+}
+
+function removeStudioGlaze(code, index) {
+    const key        = 'sga_studio_' + code;
+    const studioData = JSON.parse(localStorage.getItem(key) || '{}');
+    const glazes     = studioData.glazes || [];
+    glazes.splice(index, 1);
+    studioData.glazes = glazes;
+    localStorage.setItem(key, JSON.stringify(studioData));
+    renderMgmtGlazes();
+    if (activeStudioCode === code) loadActiveGlazes();
+}
+
+function saveCurrentUser() {
+    if (!currentUser) return;
+    const key    = 'sga_user_' + currentUser.username.toLowerCase();
+    const stored = JSON.parse(localStorage.getItem(key) || '{}');
+    stored.studios = currentUser.studios || [];
+    localStorage.setItem(key, JSON.stringify(stored));
+}
+
+function resetGlazeSelection() {
+    selectedL1 = null;
+    selectedL2 = null;
+    mixCanvas  = null;
+    activeStudioCode = null;
+    _glazesDirty = true;
+    const bar = document.getElementById('active-studio-bar');
+    if (bar) bar.classList.remove('visible');
+    if (typeof updateMixerUI === 'function') updateMixerUI();
+}
+
+function doLogout() {
+    document.getElementById('profile-overlay').classList.remove('open');
+    currentUser = null;
+    document.getElementById('pill-avatar').textContent = '?';
+    resetGlazeSelection();
+    showHome();
+}
+
+function enterApp() {
+    document.getElementById('home-screen').classList.add('hidden');
+    document.getElementById('auth-screen').classList.add('hidden');
+
+    // Reset glaze selection for the new session
+    resetGlazeSelection();
+
+    // Update profile pill
+    // Initials: up to 2 chars from username words
+    const parts    = currentUser.username.trim().split(/\s+/);
+    const initials = parts.length >= 2
+        ? (parts[0][0] + parts[1][0]).toUpperCase()
+        : currentUser.username.slice(0,2).toUpperCase();
+    const pillAvatar = document.getElementById('pill-avatar');
+    if (pillAvatar) pillAvatar.textContent = initials;
+
+    // Resume canvas
+    const cnv = document.querySelector('#canvas-container canvas');
+    if (cnv) cnv.style.visibility = 'visible';
+    _glazesDirty = true; // ensure glazes rebuild on first draw
+    if (typeof loop === 'function') loop();
+    if (typeof redraw === 'function') redraw();
+    fitPanels();
+}
+
+// Check for existing session on load
+(function checkSession() {
+    const lastUser = localStorage.getItem('sga_last_user');
+    if (lastUser) {
+        const stored = localStorage.getItem('sga_user_' + lastUser);
+        if (stored) {
+            const account = JSON.parse(stored);
+            currentUser = { username: account.username, studios: account.studios || [] };
+            // Auto-enter app — show home first so it feels intentional
+        }
+    }
+    // Home is shown by splash sequence
+})();
+
+// ═══════════════════════════════════════════════════════
+//  TINTING
+// ═══════════════════════════════════════════════════════
+function rgbToHsl(r, g, b) {
+    const rn=r/255, gn=g/255, bn=b/255;
+    const max=Math.max(rn,gn,bn), min=Math.min(rn,gn,bn);
+    let h, s, l=(max+min)/2;
+    if (max===min) { h=s=0; }
+    else {
+        const d=max-min;
+        s = l>0.5 ? d/(2-max-min) : d/(max+min);
+        switch(max){
+            case rn: h=((gn-bn)/d+(gn<bn?6:0))/6; break;
+            case gn: h=((bn-rn)/d+2)/6; break;
+            case bn: h=((rn-gn)/d+4)/6; break;
+        }
+    }
+    return [h,s,l];
+}
+
+function hslToHex(h,s,l) {
+    let r,g,b;
+    if (s===0) { r=g=b=l; }
+    else {
+        const hue2rgb=(p,q,t)=>{
+            if(t<0)t+=1; if(t>1)t-=1;
+            if(t<1/6) return p+(q-p)*6*t;
+            if(t<1/2) return q;
+            if(t<2/3) return p+(q-p)*(2/3-t)*6;
+            return p;
+        };
+        const q=l<0.5?l*(1+s):l+s-l*s, p=2*l-q;
+        r=hue2rgb(p,q,h+1/3); g=hue2rgb(p,q,h); b=hue2rgb(p,q,h-1/3);
+    }
+    const toHex=x=>Math.round(x*255).toString(16).padStart(2,'0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function tintLogo(col) {
+    const [h,s]=rgbToHsl(red(col),green(col),blue(col));
+    const effS=Math.min(s,0.85);
+    const stops=[0.78,0.62,0.46,0.30,0.16];
+    ['logo-l5','logo-l4','logo-l3','logo-l2','logo-l1'].forEach((id,i)=>{
+        const el=document.getElementById(id);
+        if(el) el.setAttribute('fill',hslToHex(h,effS,stops[i]));
+    });
+}
+
+function tintLogoGrey() {
+    ['#ccc','#999','#666','#333','#111'].forEach((c,i)=>{
+        const el=document.getElementById(['logo-l5','logo-l4','logo-l3','logo-l2','logo-l1'][i]);
+        if(el) el.setAttribute('fill',c);
+    });
+}
+
+function tintWordmark(col) {
+    const [h,s]=rgbToHsl(red(col),green(col),blue(col));
+    const hex=hslToHex(h,Math.min(s,0.85),0.28);
+    document.querySelectorAll('#wordmark-svg path').forEach(p=>p.style.fill=hex);
+}
+
+function tintWordmarkGrey() {
+    document.querySelectorAll('#wordmark-svg path').forEach(p=>p.style.fill='#1c1814');
+}
+
+// ── Window resize handler ────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+    const container = document.getElementById('canvas-container');
+    if (typeof resizeCanvas === 'function') {
+        resizeCanvas(container.offsetWidth, container.offsetHeight);
+        // Recompute layout
+        const scale = width / 440;
+        TILE_SIZE = Math.round(320 * scale);
+        TILE_CX   = Math.round(width / 2);
+        const chromeElR     = document.getElementById('app-chrome');
+        const chromeBottomR = chromeElR ? chromeElR.getBoundingClientRect().height : Math.round(290 * scale);
+        const carouselTopR  = height - Math.round(140 * scale) - Math.round(SWATCH/2) - 22;
+        TILE_CY = Math.round((chromeBottomR + carouselTopR) / 2);
+        SWATCH    = Math.round(108 * scale);
+        GAP       = Math.round(18  * scale);
+        STEP      = SWATCH + GAP;
+        START_X   = Math.round(62  * scale);
+        if (typeof fitPanels === 'function') fitPanels();
+    }
+});
+
+// ═══════════════════════════════════════════════════════
+//  TOUCH CURSOR
+// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  LIGHTBOX
+// ═══════════════════════════════════════════════════════
+let lbPieceId = null;
+let lbStage   = null;
+let lbIndex   = 0;
+
+function openLightbox(pieceId, stage, index) {
+    const piece = pieces.find(p => p.id === pieceId);
+    if (!piece) return;
+    const photos = piece.stages[stage].photos || [];
+    if (!photos.length) return;
+
+    lbPieceId = pieceId;
+    lbStage   = stage;
+    lbIndex   = index;
+
+    renderLightbox(photos);
+    document.getElementById('lightbox').classList.add('open');
+}
+
+function renderLightbox(photos) {
+    const img     = document.getElementById('lightbox-img');
+    const strip   = document.getElementById('lightbox-strip');
+    const counter = document.getElementById('lightbox-counter');
+
+    img.src = photos[lbIndex];
+
+    strip.innerHTML = photos.map((src, i) =>
+        `<img class="lightbox-thumb ${i === lbIndex ? 'active' : ''}"
+            src="${src}" onclick="lbGoTo(${i})">`
+    ).join('');
+
+    counter.textContent = `${lbIndex + 1} / ${photos.length}`;
+}
+
+function deleteCurrentPhoto() {
+    const piece = pieces.find(p => p.id === lbPieceId);
+    if (!piece) return;
+    const photos = piece.stages[lbStage].photos;
+    if (!photos || !photos.length) return;
+
+    // Remove the photo at current index
+    photos.splice(lbIndex, 1);
+
+    // Re-render the card strip in the background
+    renderPieces();
+
+    if (photos.length === 0) {
+        // No photos left — close lightbox
+        closeLightbox();
+    } else {
+        // Step back if we deleted the last item
+        if (lbIndex >= photos.length) lbIndex = photos.length - 1;
+        renderLightbox(photos);
+    }
+}
+
+function lbGoTo(index) {
+    const piece = pieces.find(p => p.id === lbPieceId);
+    if (!piece) return;
+    lbIndex = index;
+    renderLightbox(piece.stages[lbStage].photos || []);
+}
+
+function addPhotosFromLightbox(e) {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    const piece = pieces.find(p => p.id === lbPieceId);
+    if (!piece) return;
+    if (!piece.stages[lbStage].photos) piece.stages[lbStage].photos = [];
+
+    let loaded = 0;
+    files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = ev => {
+            piece.stages[lbStage].photos.push(ev.target.result);
+            loaded++;
+            if (loaded === files.length) {
+                // Jump to the first newly added photo
+                lbIndex = piece.stages[lbStage].photos.length - files.length;
+                renderLightbox(piece.stages[lbStage].photos);
+                renderPieces();
+                // Reset the input so the same file can be added again if needed
+                e.target.value = '';
+            }
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('open');
+    lbPieceId = null; lbStage = null; lbIndex = 0;
+}
+
+// Close lightbox on backdrop tap
+document.getElementById('lightbox').addEventListener('click', function(e) {
+    if (e.target === this) closeLightbox();
+});
+
+// ── Measure chrome height and apply to panels ──────────────────────────────
+function fitPanels() {
+    const chrome = document.getElementById('app-chrome');
+    const h = chrome.getBoundingClientRect().height;
+    const top = Math.ceil(h) + 8; // 8px breathing room
+    document.querySelectorAll('.tab-panel').forEach(p => p.style.top = top + 'px');
+}
+// Run after fonts/SVGs have rendered
+window.addEventListener('load', fitPanels);
+// Also run once immediately in case load already fired
+fitPanels();
+
+const cursor = document.getElementById('touch-cursor');
+document.getElementById('canvas-container').addEventListener('mouseenter', ()=> cursor.style.display='block');
+document.getElementById('canvas-container').addEventListener('mouseleave', ()=> cursor.style.display='none');
+document.addEventListener('mousemove', e=>{ cursor.style.left=e.clientX+'px'; cursor.style.top=e.clientY+'px'; });
+document.addEventListener('mousedown', ()=> cursor.classList.add('pressed'));
+document.addEventListener('mouseup',   ()=> cursor.classList.remove('pressed'));
