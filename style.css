@@ -44,18 +44,18 @@
         }
 
         #header {
-            padding: 52px 28px 0;
+            padding: clamp(14px, 4vw, 52px) 28px 0;
             display: flex;
             flex-direction: column;
             align-items: center;
             width: 100%;
         }
 
-        #logo-wrap { width: 90px; height: auto; margin-bottom: 12px; }
+        #logo-wrap { width: clamp(52px, 16vw, 90px); height: auto; margin-bottom: clamp(6px, 1.5vw, 12px); }
         #logo-wrap svg { width: 100%; height: auto; }
         #logo-wrap svg rect { transition: fill 0.5s ease; }
 
-        #wordmark-wrap { width: 75px; height: auto; margin-bottom: 2px; }
+        #wordmark-wrap { width: clamp(43px, 13.5vw, 75px); height: auto; margin-bottom: 2px; }
         #wordmark-wrap svg { width: 100%; height: auto; }
         #wordmark-wrap svg path { transition: fill 0.5s ease; }
 
@@ -63,7 +63,7 @@
         #tab-bar {
             display: flex;
             width: calc(100% - 56px);
-            margin: 18px 28px 0;
+            margin: clamp(8px, 2.5vw, 18px) 28px 0;
             border-bottom: 1.5px solid #e2dbd2;
             pointer-events: auto;
         }
@@ -591,7 +591,7 @@
 
         .stage-notes {
             flex: 1;
-            min-height: 92px;
+            min-height: 140px;
             background: #faf8f5;
             border: 1.5px solid #e8e2d9;
             border-radius: 14px;

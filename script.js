@@ -46,14 +46,37 @@ let STEP      = SWATCH + GAP;
 let START_X   = 62;
 
 // These are computed dynamically in setup() based on actual canvas size
-let TILE_SIZE = 320;
-let TILE_CX   = 220;
-let TILE_CY   = 515;
+let TILE_SIZE      = 320;
+let TILE_CX        = 220;
+let TILE_CY        = 515;
+let CAROUSEL_BOTTOM = 110; // px from bottom to carousel center — scales with screen
 
 let dragStartX      = 0;
 let dragStartScroll = 0;
 let isDragging      = false;
 const DRAG_THRESHOLD = 5;
+
+function _recomputeLayout() {
+    const _isDesktop = document.body.classList.contains('desktop-mode');
+    const _ew  = _isDesktop ? Math.min(width, 480) : width;
+    const scale = _ew / 440;
+    SWATCH    = Math.round(108 * scale);
+    GAP       = Math.round(18  * scale);
+    STEP      = SWATCH + GAP;
+    START_X   = Math.round(62  * scale);
+    TILE_SIZE = Math.round(320 * scale * (_isDesktop ? 1.2 : 1));
+    TILE_CX   = Math.round(width / 2);
+    // Scale the carousel bottom offset so it shrinks on small screens
+    CAROUSEL_BOTTOM = Math.round(Math.max(80 * scale, 90));
+    const chromeEl     = document.getElementById('app-chrome');
+    const chromeBottom = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
+    const carouselTop  = height - CAROUSEL_BOTTOM - Math.round(SWATCH / 2) - 22;
+    TILE_CY = Math.round((chromeBottom + carouselTop) / 2);
+    // Cap tile so it never overlaps chrome or carousel
+    const availableH = carouselTop - chromeBottom - 32;
+    TILE_SIZE = Math.min(TILE_SIZE, Math.round(availableH * 0.88));
+    TILE_SIZE = Math.max(TILE_SIZE, Math.round(80 * scale)); // floor
+}
 
 function setup() {
     const container = document.getElementById('canvas-container');
@@ -62,25 +85,7 @@ function setup() {
     container.insertBefore(cnv.elt, container.firstChild);
     textFont('DM Mono');
 
-    // Scale layout to actual canvas dimensions.
-    // In desktop mode cap the effective width so the mixer doesn't over-scale on wide viewports.
-    const _isDesktop = document.body.classList.contains('desktop-mode');
-    const _ew  = _isDesktop ? Math.min(width, 480) : width;
-    const scale = _ew / 440;
-    // Compute SWATCH first so carouselTop uses the correct scaled value
-    SWATCH    = Math.round(108 * scale);
-    GAP       = Math.round(18  * scale);
-    STEP      = SWATCH + GAP;
-    START_X   = Math.round(62  * scale);
-    // Tile: 1.2× larger on desktop for better visual presence
-    TILE_SIZE = Math.round(320 * scale * (_isDesktop ? 1.2 : 1));
-    TILE_CX   = Math.round(width / 2);
-    // Centre tile between chrome bottom and carousel top.
-    // carouselY in drawCarousel is always (height - 140), so use that exact value.
-    const chromeEl     = document.getElementById('app-chrome');
-    const chromeBottom = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
-    const carouselTop  = height - 140 - Math.round(SWATCH / 2) - 22;
-    TILE_CY = Math.round((chromeBottom + carouselTop) / 2);
+    _recomputeLayout();
 
     // Default personal glaze definitions
     window._defaultGlazeDefs = [
@@ -314,7 +319,7 @@ function drawCarousel() {
         desktopSlideOffset = desktopSlideFrom * (1 - eased);
         if (t >= 1) { desktopSlideOffset = 0; desktopSlideFrom = 0; }
     }
-    const carouselY = height - 140;
+    const carouselY = height - CAROUSEL_BOTTOM;
     const ctx       = drawingContext;
     const isDesktop = document.body.classList.contains('desktop-mode');
     const PAGE      = 5;
@@ -1687,20 +1692,7 @@ window.addEventListener('resize', () => {
     const container = document.getElementById('canvas-container');
     if (typeof resizeCanvas === 'function') {
         resizeCanvas(container.offsetWidth, container.offsetHeight);
-        // Recompute layout
-        const _isDesktopR = document.body.classList.contains('desktop-mode');
-        const _ewR  = _isDesktopR ? Math.min(width, 480) : width;
-        const scale = _ewR / 440;
-        SWATCH    = Math.round(108 * scale);
-        GAP       = Math.round(18  * scale);
-        STEP      = SWATCH + GAP;
-        START_X   = Math.round(62  * scale);
-        TILE_SIZE = Math.round(320 * scale * (_isDesktopR ? 1.2 : 1));
-        TILE_CX   = Math.round(width / 2);
-        const chromeElR     = document.getElementById('app-chrome');
-        const chromeBottomR = chromeElR ? chromeElR.getBoundingClientRect().height : Math.round(290 * scale);
-        const carouselTopR  = height - 140 - Math.round(SWATCH / 2) - 22;
-        TILE_CY = Math.round((chromeBottomR + carouselTopR) / 2);
+        _recomputeLayout();
         if (typeof fitPanels === 'function') fitPanels();
         updateCarouselArrows();
     }
@@ -1904,19 +1896,7 @@ function toggleLayout() {
         const container = document.getElementById('canvas-container');
         if (typeof resizeCanvas === 'function') {
             resizeCanvas(container.offsetWidth, container.offsetHeight);
-            const _isDesktopT = document.body.classList.contains('desktop-mode');
-            const _ewT  = _isDesktopT ? Math.min(width, 480) : width;
-            const scale = _ewT / 440;
-            SWATCH   = Math.round(108 * scale);
-            GAP      = Math.round(18  * scale);
-            STEP     = SWATCH + GAP;
-            START_X  = Math.round(62  * scale);
-            TILE_SIZE = Math.round(320 * scale * (_isDesktopT ? 1.2 : 1));
-            TILE_CX   = Math.round(width / 2);
-            const chromeEl  = document.getElementById('app-chrome');
-            const chromeBot = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
-            const carTop    = height - 140 - Math.round(SWATCH / 2) - 22;
-            TILE_CY  = Math.round((chromeBot + carTop) / 2);
+            _recomputeLayout();
         }
         scrollX = 0; targetScrollX = 0;
         desktopCarouselStart = 0; desktopSlideOffset = 0; desktopSlideFrom = 0;
