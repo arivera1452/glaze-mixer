@@ -1272,12 +1272,12 @@
         #studio-mgmt-overlay.open { transform: translateX(0); }
 
         #studio-mgmt-header {
+            position: relative;
             display: flex;
             align-items: center;
             padding: 52px 24px 16px;
             border-bottom: 1px solid #e8e2d9;
             flex-shrink: 0;
-            gap: 12px;
         }
 
         #studio-mgmt-back {
@@ -1299,8 +1299,11 @@
             font-size: 22px;
             font-weight: 400;
             color: #1c1814;
-            flex: 1;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
             margin: 0;
+            white-space: nowrap;
         }
 
         #studio-mgmt-code-badge {
@@ -1760,16 +1763,17 @@
             pointer-events: auto;
         }
         body.desktop-mode #header {
-            flex-direction: row;
+            flex-direction: column;
             align-items: center;
-            padding: 0 48px;
-            height: 68px;
+            justify-content: center;
+            padding: 0;
+            height: 204px;
             width: auto;
             border-bottom: 1.5px solid #e2dbd2;
-            gap: 16px;
+            gap: 15px;
         }
-        body.desktop-mode #logo-wrap     { width: 34px; margin-bottom: 0; }
-        body.desktop-mode #wordmark-wrap { width: 56px; margin-bottom: 0; }
+        body.desktop-mode #logo-wrap     { width: 78px; margin-bottom: 0; }
+        body.desktop-mode #wordmark-wrap { width: 65px; margin-bottom: 0; }
 
         /* Tab bar → full-width underline row, matching mobile style */
         body.desktop-mode #tab-bar {
@@ -1806,7 +1810,7 @@
 
         /* Profile pill → vertically centred in header */
         body.desktop-mode #profile-pill {
-            top: 12px;  /* (68 - 44) / 2 */
+            top: 80px;  /* (204 - 44) / 2 */
             right: 48px;
         }
 

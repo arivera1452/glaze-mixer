@@ -488,13 +488,19 @@ function updateMixerUI() {
 }
 
 function touchStarted() {
-    if (isOverlayOpen()) return false;
-    if (activeTab !== 'mixer') return false;
+    if (isOverlayOpen() || activeTab !== 'mixer') return true;
     dragStartX = mouseX; dragStartScroll = targetScrollX; isDragging = false;
+    return false; // prevent default only when interacting with the mixer canvas
+}
+function touchMoved() {
+    if (isOverlayOpen() || activeTab !== 'mixer') return true;
+    mouseDragged();
     return false;
 }
-function touchMoved()  { if (!isOverlayOpen() && activeTab === 'mixer') mouseDragged();  return false; }
-function touchEnded()  { if (!isOverlayOpen() && activeTab === 'mixer') mouseReleased(); return false; }
+function touchEnded() {
+    if (!isOverlayOpen() && activeTab === 'mixer') mouseReleased();
+    return true; // never block touch end
+}
 
 // ═══════════════════════════════════════════════════════
 //  PIECE TRACKER
@@ -566,7 +572,7 @@ function renderPieces() {
             (piece.stages[s].photos && piece.stages[s].photos.length) || (piece.stages[s].notes && piece.stages[s].notes.trim())
         ).length;
 
-        const progressSegs = STAGES.map((s, i) => {
+        const progressSegs = STAGES.map((_s, i) => {
             let cls = 'progress-seg';
             if (i < filledCount) cls += ' done';
             else if (i === filledCount) cls += ' active';
@@ -1241,7 +1247,8 @@ function openStudioMgmt(code) {
 
     // Populate header
     document.getElementById('studio-mgmt-title').textContent = studioData.name || 'New Studio';
-    document.getElementById('studio-mgmt-code-badge').textContent = code;
+    const codeBadge = document.getElementById('studio-mgmt-code-badge');
+    if (codeBadge) codeBadge.textContent = code;
     document.getElementById('mgmt-code-big').textContent = code;
 
     // Populate info fields — leave name blank so user types their own
@@ -1806,9 +1813,9 @@ function fitPanels() {
     const top = Math.ceil(h) + 8; // 8px breathing room
     document.querySelectorAll('.tab-panel').forEach(p => p.style.top = top + 'px');
 }
-// Run after fonts/SVGs have rendered
-window.addEventListener('load', fitPanels);
-// Also run once immediately in case load already fired
+// Run after fonts/SVGs have rendered — trigger full layout recalc so
+// TILE_CY uses the correct chrome height, not the pre-font estimate from setup()
+window.addEventListener('load', () => window.dispatchEvent(new Event('resize')));
 fitPanels();
 
 const cursor = document.getElementById('touch-cursor');
