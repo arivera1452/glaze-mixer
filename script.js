@@ -428,7 +428,7 @@ function drawCarousel() {
             fill(red(color('#b5a898')), green(color('#b5a898')), blue(color('#b5a898')), hintAlpha);
             textAlign(CENTER, CENTER);
             textSize(10); textStyle(NORMAL);
-            text("← swipe to browse →", width/2, height - 28);
+            text("← swipe to browse →", width/2, height - CAROUSEL_BOTTOM + SWATCH/2 + 36);
         }
     }
 }
