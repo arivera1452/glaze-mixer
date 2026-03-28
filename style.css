@@ -51,11 +51,11 @@
             width: 100%;
         }
 
-        #logo-wrap { width: clamp(32px, 9vw, 90px); height: auto; margin-bottom: clamp(3px, 1vw, 12px); }
+        #logo-wrap { width: clamp(40px, 12vw, 90px); height: auto; margin-bottom: 0; }
         #logo-wrap svg { width: 100%; height: auto; }
         #logo-wrap svg rect { transition: fill 0.5s ease; }
 
-        #wordmark-wrap { width: clamp(27px, 7.5vw, 75px); height: auto; margin-bottom: 2px; }
+        #wordmark-wrap { display: none; }
         #wordmark-wrap svg { width: 100%; height: auto; }
         #wordmark-wrap svg path { transition: fill 0.5s ease; }
 
@@ -1742,7 +1742,7 @@
             gap: 15px;
         }
         body.desktop-mode #logo-wrap     { width: 78px; margin-bottom: 0; }
-        body.desktop-mode #wordmark-wrap { width: 65px; margin-bottom: 0; }
+        body.desktop-mode #wordmark-wrap { display: block; width: 65px; margin-bottom: 0; }
 
         /* Tab bar → full-width underline row, matching mobile style */
         body.desktop-mode #tab-bar {
