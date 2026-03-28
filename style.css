@@ -2,11 +2,7 @@
 
         body {
             margin: 0; padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background: #e8e2d9;
+            background: #faf8f5;
             font-family: 'DM Mono', monospace;
         }
 
@@ -16,34 +12,13 @@
             touch-action: manipulation;
         }
 
-        /* ── Phone shell (desktop mockup) ── */
+        /* ── Canvas container: always fills the screen ── */
         #canvas-container {
-            width: 440px;
-            height: 956px;
+            width: 100vw;
+            height: 100dvh;
             position: relative;
             background: #faf8f5;
-            box-shadow:
-                0 0 0 10px #2a2520,
-                0 40px 80px rgba(0,0,0,0.45),
-                0 10px 30px rgba(0,0,0,0.3);
-            border-radius: 52px;
             overflow: hidden;
-            cursor: none;
-        }
-
-        /* ── Real device: fill the screen ── */
-        @media (max-width: 480px) {
-            body {
-                background: #faf8f5;
-                align-items: flex-start;
-            }
-            #canvas-container {
-                width: 100vw;
-                height: 100dvh;  /* dynamic viewport — accounts for browser chrome */
-                border-radius: 0;
-                box-shadow: none;
-                cursor: auto;
-            }
         }
 
         /* p5 canvas — behind everything, only shown on mixer tab */
@@ -1744,18 +1719,6 @@
            Auto-set when viewport > 900 px; toggle overrides.
         ══════════════════════════════════════════════════ */
 
-        /* Shell */
-        body.desktop-mode {
-            align-items: flex-start;
-            justify-content: flex-start;
-        }
-        body.desktop-mode #canvas-container {
-            width: 100vw;
-            height: 100dvh;
-            border-radius: 0;
-            box-shadow: none;
-            cursor: default;
-        }
         body.desktop-mode #touch-cursor { display: none !important; }
 
         /* App chrome → two-row column: logo row + tab row */
