@@ -43,7 +43,7 @@
     <!-- ── Shared chrome (always on top) ── -->
     <div id="app-chrome">
         <div id="header">
-            <div id="logo-wrap" onclick="showHome()" style="cursor:pointer;" title="Home">
+            <div id="logo-wrap">
                 <svg id="logo-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 413.63 666.44">
                   <g>
                     <rect id="logo-l5" x="50.31" y="303.13" width="313.01" height="313.01" rx="35.04" ry="35.04" transform="translate(385.58 -11.62) rotate(45)" fill="#ccc" opacity="0.9"/>
@@ -54,7 +54,7 @@
                   </g>
                 </svg>
             </div>
-            <div id="wordmark-wrap" onclick="showHome()" style="cursor:pointer;" title="Home">
+            <div id="wordmark-wrap">
                 <svg id="wordmark-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 244.23 141.99">
                   <g>
                     <path d="M82.37,59.91c4.21,0,7.58-1.15,10.13-3.45,2.54-2.3,3.82-5.41,3.82-9.32,0-3.23-1.13-5.73-3.38-7.49-2.25-1.76-5.19-2.64-8.81-2.64-4.02,0-7.37,1.15-10.06,3.45-2.69,2.3-4.04,5.16-4.04,8.59,0,3.43,1.03,6.09,3.08,8,2.06,1.91,5.14,2.86,9.25,2.86Z"/>
@@ -158,7 +158,6 @@
                     <span class="mgmt-section-label" style="margin:0">Contact</span>
                     <input id="mgmt-contact" class="mgmt-input" type="text" placeholder="Email or website">
                 </div>
-                <button class="mgmt-save-btn" id="mgmt-save-btn" onclick="saveStudioInfo()">Save Changes</button>
             </div>
 
             <!-- Studio code -->
@@ -187,11 +186,28 @@
                 </div>
             </div>
 
-            <!-- Remove studio -->
-            <div class="mgmt-section">
+            <!-- Remove studio (hidden for new/pending studios) -->
+            <div class="mgmt-section" id="mgmt-remove-section">
                 <button id="mgmt-remove-studio-btn" onclick="promptRemoveStudio()">Leave / Remove Studio</button>
             </div>
 
+            <!-- Save / Create button — always at the bottom -->
+            <div class="mgmt-section">
+                <button class="mgmt-save-btn" id="mgmt-save-btn" onclick="saveStudioInfo()">Save Changes</button>
+            </div>
+
+        </div>
+
+        <!-- Member remove confirm overlay -->
+        <div id="mgmt-member-confirm" style="display:none;position:absolute;inset:0;background:rgba(15,12,10,0.6);z-index:20;align-items:center;justify-content:center;">
+            <div style="background:#faf8f5;border-radius:22px;padding:28px 24px 22px;width:300px;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,0.35);">
+                <h3 style="font-family:'DM Serif Display',serif;font-size:20px;font-weight:400;color:#1c1814;margin:0 0 8px">Remove member?</h3>
+                <p id="mgmt-member-confirm-text" style="font-size:11px;color:#b09070;line-height:1.6;margin:0 0 22px">They will lose access to this studio's glazes.</p>
+                <div style="display:flex;gap:10px">
+                    <button onclick="cancelRemoveMember()" style="flex:1;padding:13px 0;border-radius:100px;background:#f0ebe4;border:none;font-family:'DM Mono',monospace;font-size:11px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;color:#6b5e52;cursor:pointer">Cancel</button>
+                    <button onclick="confirmRemoveMember()" style="flex:1;padding:13px 0;border-radius:100px;background:#2a1a18;border:none;font-family:'DM Mono',monospace;font-size:11px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;color:#faf8f5;cursor:pointer">Remove</button>
+                </div>
+            </div>
         </div>
 
         <!-- Remove confirm overlay — centred over management page -->
@@ -322,6 +338,13 @@
                 <span class="auth-label">Password</span>
                 <input id="login-pass" class="auth-input" type="password" placeholder="••••••••">
             </div>
+            <label class="remember-row">
+                <span class="remember-label">Remember me</span>
+                <span class="toggle-track">
+                    <input type="checkbox" id="remember-me-toggle" class="toggle-input">
+                    <span class="toggle-thumb"></span>
+                </span>
+            </label>
             <p id="login-error" class="auth-error"></p>
             <button class="auth-submit" onclick="doLogin()">Log In</button>
         </div>
@@ -343,6 +366,12 @@
 
 </div><!-- #canvas-container -->
 
+<!-- DEV: layout toggle — remove before launch -->
+<button id="layout-toggle" onclick="toggleLayout()">Mobile View</button>
+
+<!-- Desktop carousel arrows -->
+<button id="carousel-prev" onclick="carouselPrev()">&#8249;</button>
+<button id="carousel-next" onclick="carouselNext()">&#8250;</button>
 
 <script src="script.js"></script>
 </body>

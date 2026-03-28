@@ -5,6 +5,7 @@ let activeTab = 'mixer';
 
 function switchTab(tab) {
     activeTab = tab;
+    if (typeof updateCarouselArrows === 'function') updateCarouselArrows();
 
     document.querySelectorAll('.tab-btn').forEach((b, i) => {
         b.classList.toggle('active', (i === 0) === (tab === 'mixer'));
@@ -34,6 +35,11 @@ let selectedL2 = null;
 
 let scrollX = 0;
 let targetScrollX = 0;
+let desktopCarouselStart  = 0;   // first visible glaze index in desktop paged mode
+let desktopSlideOffset    = 0;   // fractional tile-width offset for slide animation
+let desktopSlideFrom      = 0;   // starting offset when animation began
+let desktopSlideStartTime = 0;   // performance.now() when animation began
+const DESKTOP_SLIDE_MS    = 340; // animation duration ms
 let SWATCH    = 108;
 let GAP       = 18;
 let STEP      = SWATCH + GAP;
@@ -56,20 +62,25 @@ function setup() {
     container.insertBefore(cnv.elt, container.firstChild);
     textFont('DM Mono');
 
-    // Scale layout to actual canvas dimensions
-    const scale = width / 440;
-    TILE_SIZE = Math.round(320 * scale);
-    TILE_CX   = Math.round(width / 2);
-    // Centre tile between chrome bottom and carousel top
-    // carouselTop = height - 140 - SWATCH/2 - 22
-    const chromeEl    = document.getElementById('app-chrome');
-    const chromeBottom = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
-    const carouselTop  = height - Math.round(140 * scale) - Math.round(SWATCH/2) - 22;
-    TILE_CY = Math.round((chromeBottom + carouselTop) / 2);
+    // Scale layout to actual canvas dimensions.
+    // In desktop mode cap the effective width so the mixer doesn't over-scale on wide viewports.
+    const _isDesktop = document.body.classList.contains('desktop-mode');
+    const _ew  = _isDesktop ? Math.min(width, 480) : width;
+    const scale = _ew / 440;
+    // Compute SWATCH first so carouselTop uses the correct scaled value
     SWATCH    = Math.round(108 * scale);
     GAP       = Math.round(18  * scale);
     STEP      = SWATCH + GAP;
     START_X   = Math.round(62  * scale);
+    // Tile: 1.2× larger on desktop for better visual presence
+    TILE_SIZE = Math.round(320 * scale * (_isDesktop ? 1.2 : 1));
+    TILE_CX   = Math.round(width / 2);
+    // Centre tile between chrome bottom and carousel top.
+    // carouselY in drawCarousel is always (height - 140), so use that exact value.
+    const chromeEl     = document.getElementById('app-chrome');
+    const chromeBottom = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
+    const carouselTop  = height - 140 - Math.round(SWATCH / 2) - 22;
+    TILE_CY = Math.round((chromeBottom + carouselTop) / 2);
 
     // Default personal glaze definitions
     window._defaultGlazeDefs = [
@@ -93,6 +104,7 @@ function setup() {
     ];
 
     studioGlazes = buildGlazes(defs);
+    setTimeout(updateCarouselArrows, 0);
 }
 
 // Convert a hex color string to rgb array
@@ -156,8 +168,10 @@ function rebuildGlazesIfDirty() {
         studioGlazes = []; // no studio active = empty carousel
     }
 
-    // Force carousel scroll reset
+    // Reset carousel scroll and paging
     scrollX = 0; targetScrollX = 0;
+    desktopCarouselStart = 0; desktopSlideOffset = 0; desktopSlideFrom = 0;
+    setTimeout(updateCarouselArrows, 0);
 }
 
 // Set a studio as active from the profile overlay
@@ -267,25 +281,69 @@ function drawTile() {
             text("to preview on tile", TILE_CX, TILE_CY + 14);
         }
     }
+    // Studio label — drawn on canvas below the tile in desktop mode;
+    // the HTML #active-studio-bar handles this in mobile mode.
+    if (activeStudioCode && document.body.classList.contains('desktop-mode')) {
+        const nameSpan   = document.getElementById('active-studio-name');
+        const studioName = (nameSpan ? nameSpan.textContent : '').toUpperCase();
+        const labelY     = TILE_CY + TILE_SIZE / 2 + 22;
+        const prefix     = 'VIEWING  ';
+        textSize(9);
+        textStyle(NORMAL);
+        textAlign(LEFT, CENTER);
+        noStroke();
+        // Measure both parts to manually center the two-color string
+        const prefixW = textWidth(prefix);
+        const nameW   = textWidth(studioName);
+        const startX  = TILE_CX - (prefixW + nameW) / 2;
+        fill('#b09070');
+        text(prefix, startX, labelY);
+        fill('#1c1814');
+        text(studioName, startX + prefixW, labelY);
+    }
+
     rectMode(CORNER);
     textStyle(NORMAL);
 }
 
 function drawCarousel() {
     scrollX = lerp(scrollX, targetScrollX, 0.18);
+    if (desktopSlideFrom !== 0) {
+        const t     = Math.min(1, (performance.now() - desktopSlideStartTime) / DESKTOP_SLIDE_MS);
+        const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+        desktopSlideOffset = desktopSlideFrom * (1 - eased);
+        if (t >= 1) { desktopSlideOffset = 0; desktopSlideFrom = 0; }
+    }
     const carouselY = height - 140;
-    const ctx = drawingContext;
+    const ctx       = drawingContext;
+    const isDesktop = document.body.classList.contains('desktop-mode');
+    const PAGE      = 5;
+
+    // Desktop: show up to 5 glazes, centered, paged via arrows.
+    // Mobile:  all glazes, left-anchored, drag scroll.
+    const displayGlazes = isDesktop
+        ? studioGlazes.slice(desktopCarouselStart, desktopCarouselStart + PAGE)
+        : studioGlazes;
+
+    const baseStartX = (isDesktop && displayGlazes.length > 0)
+        ? Math.round(width / 2 - (displayGlazes.length * STEP - GAP) / 2 + SWATCH / 2)
+        : START_X;
+
+    // Push non-visible glazes off screen so they can't be hit-tested
+    if (isDesktop) {
+        for (const g of studioGlazes) { g.worldX = -9999; g.worldY = -9999; }
+    }
 
     push();
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, carouselY - SWATCH/2 - 22, width, SWATCH + 64);
+    ctx.rect(0, carouselY - SWATCH / 2 - 22, width, SWATCH + 64);
     ctx.clip();
     translate(scrollX, 0);
 
-    for (let i = 0; i < studioGlazes.length; i++) {
-        const g  = studioGlazes[i];
-        const cx = START_X + i * STEP;
+    for (let i = 0; i < displayGlazes.length; i++) {
+        const g  = displayGlazes[i];
+        const cx = baseStartX + i * STEP + desktopSlideOffset * STEP;
         const cy = carouselY;
         g.worldX = cx;
         g.worldY = cy;
@@ -294,8 +352,6 @@ function drawCarousel() {
         const isTop  = selectedL2 === g;
         const lift   = (isBase || isTop) ? -6 : 0;
         const sy     = cy + lift;
-        const sx     = cx - SWATCH/2;
-        const stY    = sy - SWATCH/2;
 
         // Shadow + flat fill
         drawingContext.shadowColor   = isBase||isTop ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.10)';
@@ -337,12 +393,38 @@ function drawCarousel() {
     ctx.restore();
     pop();
 
-    const hintAlpha = map(abs(targetScrollX), 0, 60, 180, 0, true);
-    if (hintAlpha > 0) {
-        fill(red(color('#b5a898')), green(color('#b5a898')), blue(color('#b5a898')), hintAlpha);
-        textAlign(CENTER, CENTER);
-        textSize(10); textStyle(NORMAL);
-        text("← swipe to browse →", width/2, height - 28);
+    // Desktop: edge fades — hint that more glazes exist beyond the visible page
+    if (isDesktop && studioGlazes.length > PAGE) {
+        const fadeW = 140;
+        const y0    = carouselY - SWATCH / 2 - 22;
+        const fh    = SWATCH + 64;
+        ctx.save();
+        if (desktopCarouselStart > 0) {
+            const lg = ctx.createLinearGradient(0, 0, fadeW, 0);
+            lg.addColorStop(0, 'rgba(250,248,245,1)');
+            lg.addColorStop(1, 'rgba(250,248,245,0)');
+            ctx.fillStyle = lg;
+            ctx.fillRect(0, y0, fadeW, fh);
+        }
+        if (desktopCarouselStart + PAGE < studioGlazes.length) {
+            const rg = ctx.createLinearGradient(width - fadeW, 0, width, 0);
+            rg.addColorStop(0, 'rgba(250,248,245,0)');
+            rg.addColorStop(1, 'rgba(250,248,245,1)');
+            ctx.fillStyle = rg;
+            ctx.fillRect(width - fadeW, y0, fadeW, fh);
+        }
+        ctx.restore();
+    }
+
+    // Mobile: swipe hint
+    if (!isDesktop) {
+        const hintAlpha = map(abs(targetScrollX), 0, 60, 180, 0, true);
+        if (hintAlpha > 0) {
+            fill(red(color('#b5a898')), green(color('#b5a898')), blue(color('#b5a898')), hintAlpha);
+            textAlign(CENTER, CENTER);
+            textSize(10); textStyle(NORMAL);
+            text("← swipe to browse →", width/2, height - 28);
+        }
     }
 }
 
@@ -363,11 +445,12 @@ function mousePressed() {
 function mouseDragged() {
     if (isOverlayOpen()) return;
     if (activeTab !== 'mixer') return;
+    if (document.body.classList.contains('desktop-mode')) return;
     let dx = mouseX - dragStartX;
     if (abs(dx) > DRAG_THRESHOLD) isDragging = true;
     if (isDragging) {
-        let totalWidth = (studioGlazes.length - 1) * STEP;
-        targetScrollX = constrain(dragStartScroll + dx, -(totalWidth - (width - START_X*2)), 0);
+        const totalWidth = (studioGlazes.length - 1) * STEP;
+        targetScrollX = constrain(dragStartScroll + dx, -(totalWidth - (width - START_X * 2)), 0);
     }
 }
 
@@ -426,31 +509,12 @@ function addPiece() {
     renderPieces();
 }
 
-// ── Hold-to-delete ───────────────────────────────────────────────────────────
-let holdTimer    = null;
-let holdTarget   = null;
+// ── Delete piece ─────────────────────────────────────────────────────────────
 let pendingDelete = null;
 
-function startHold(id, headerEl) {
-    holdTarget = headerEl;
-    headerEl.classList.add('holding');
-    const bar = headerEl.querySelector('.piece-hold-bar');
-    if (bar) { bar.classList.remove('animating'); void bar.offsetWidth; bar.classList.add('animating'); }
-    holdTimer = setTimeout(() => {
-        endHold();
-        pendingDelete = id;
-        document.getElementById('delete-confirm').classList.add('open');
-    }, 900);
-}
-
-function endHold() {
-    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-    if (holdTarget) {
-        holdTarget.classList.remove('holding');
-        const bar = holdTarget.querySelector('.piece-hold-bar');
-        if (bar) bar.classList.remove('animating');
-        holdTarget = null;
-    }
+function requestDeletePiece(id) {
+    pendingDelete = id;
+    document.getElementById('delete-confirm').classList.add('open');
 }
 
 function confirmDelete() {
@@ -541,6 +605,7 @@ function renderPieces() {
         card.innerHTML = `
             <div class="piece-card-header" onclick="togglePiece(${piece.id})" style="cursor:pointer;"
                 data-id="${piece.id}">
+                <div class="drag-handle" onpointerdown="startPieceDrag(event,${piece.id})" onclick="event.stopPropagation()">⠿</div>
                 <input class="piece-name-input" type="text"
                     placeholder="Untitled piece" value="${piece.name}"
                     oninput="handleName(event,${piece.id})"
@@ -551,31 +616,12 @@ function renderPieces() {
             <div class="piece-body ${isOpen ? 'open' : ''}">
                 <div class="piece-progress">${progressSegs}</div>
                 <div class="piece-stages">${stageRows}</div>
+                <div class="piece-delete-row">
+                    <button class="piece-delete-btn" onclick="requestDeletePiece(${piece.id})">Delete piece</button>
+                </div>
             </div>
         `;
         list.appendChild(card);
-
-        // Attach hold-to-delete listeners to the header
-        const header = card.querySelector('.piece-card-header');
-
-        // Inject the hold progress bar
-        const bar = document.createElement('div');
-        bar.className = 'piece-hold-bar';
-        header.appendChild(bar);
-
-        const onStart = (e) => {
-            // Don't trigger hold when interacting with input or chevron
-            if (e.target.closest('input, button, textarea')) return;
-            startHold(piece.id, header);
-        };
-        const onEnd = () => endHold();
-
-        header.addEventListener('mousedown',  onStart);
-        header.addEventListener('touchstart', onStart, { passive: true });
-        header.addEventListener('mouseup',    onEnd);
-        header.addEventListener('mouseleave', onEnd);
-        header.addEventListener('touchend',   onEnd);
-        header.addEventListener('touchcancel',onEnd);
     });
 
     // Re-apply active search so filter persists after re-render
@@ -623,6 +669,107 @@ function clearSearch() {
     const input = document.getElementById('search-input');
     if (input) input.value = '';
     filterPieces('');
+}
+
+// ═══════════════════════════════════════════════════════
+//  PIECE DRAG-TO-REORDER
+// ═══════════════════════════════════════════════════════
+let _dragState = null;
+
+function startPieceDrag(e, id) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const list = document.getElementById('piece-list');
+    const card = list.querySelector(`.piece-card[data-id="${id}"]`);
+    if (!card) return;
+
+    const rect  = card.getBoundingClientRect();
+    const ghost = card.cloneNode(true);
+    ghost.style.cssText = [
+        `position:fixed`,
+        `left:${rect.left}px`,
+        `top:${rect.top}px`,
+        `width:${rect.width}px`,
+        `opacity:0.85`,
+        `pointer-events:none`,
+        `z-index:9999`,
+        `transform:scale(1.02) rotate(0.8deg)`,
+        `box-shadow:0 10px 36px rgba(0,0,0,0.20)`,
+        `border-radius:22px`,
+    ].join(';');
+    document.body.appendChild(ghost);
+    card.style.opacity = '0.3';
+
+    _dragState = {
+        id, ghost, card, list,
+        offsetX: e.clientX - rect.left,
+        offsetY: e.clientY - rect.top,
+        insertBefore: null,
+    };
+
+    document.addEventListener('pointermove',   _onDragMove, { passive: false });
+    document.addEventListener('pointerup',     _onDragEnd);
+    document.addEventListener('pointercancel', _onDragEnd);
+}
+
+function _onDragMove(e) {
+    if (!_dragState) return;
+    e.preventDefault();
+    const { ghost, offsetX, offsetY, list, id } = _dragState;
+
+    ghost.style.left = (e.clientX - offsetX) + 'px';
+    ghost.style.top  = (e.clientY - offsetY) + 'px';
+
+    // Visible cards that are not the dragged card
+    const targets = [...list.querySelectorAll('.piece-card')].filter(
+        c => c.style.display !== 'none' && parseInt(c.dataset.id) !== id
+    );
+
+    let insertBefore = null;
+    for (const c of targets) {
+        const r = c.getBoundingClientRect();
+        if (e.clientY < r.top + r.height / 2) { insertBefore = c; break; }
+    }
+    _dragState.insertBefore = insertBefore;
+
+    list.querySelectorAll('.drop-indicator').forEach(d => d.remove());
+    const ind = document.createElement('div');
+    ind.className = 'drop-indicator';
+    if (insertBefore) {
+        list.insertBefore(ind, insertBefore);
+    } else {
+        const last = targets[targets.length - 1];
+        if (last) last.after(ind); else list.appendChild(ind);
+    }
+}
+
+function _onDragEnd() {
+    if (!_dragState) return;
+    const { id, ghost, card, list, insertBefore } = _dragState;
+
+    ghost.remove();
+    card.style.opacity = '';
+    list.querySelectorAll('.drop-indicator').forEach(d => d.remove());
+
+    document.removeEventListener('pointermove',   _onDragMove);
+    document.removeEventListener('pointerup',     _onDragEnd);
+    document.removeEventListener('pointercancel', _onDragEnd);
+    _dragState = null;
+
+    const fromIdx = pieces.findIndex(p => p.id === id);
+    if (fromIdx === -1) { renderPieces(); return; }
+    const [piece] = pieces.splice(fromIdx, 1);
+
+    if (insertBefore) {
+        const toId  = parseInt(insertBefore.dataset.id);
+        const toIdx = pieces.findIndex(p => p.id === toId);
+        pieces.splice(toIdx === -1 ? pieces.length : toIdx, 0, piece);
+    } else {
+        pieces.push(piece);
+    }
+
+    renderPieces();
 }
 
 function handleNotes(e, id, stage) {
@@ -774,6 +921,12 @@ function showAuth(mode) {
         subtitle.textContent = 'Log In';
         formLogin.style.display  = 'flex';
         formCreate.style.display = 'none';
+        // Pre-fill remembered username
+        const rememberedUser = localStorage.getItem('sga_remembered_user');
+        const userInput      = document.getElementById('login-user');
+        const toggleEl       = document.getElementById('remember-me-toggle');
+        if (rememberedUser && userInput)  { userInput.value = rememberedUser; }
+        if (toggleEl) toggleEl.checked = !!rememberedUser;
     } else {
         title.textContent    = 'Get started';
         subtitle.textContent = 'Create Account';
@@ -797,9 +950,11 @@ function generateStudioCode() {
 }
 
 function doLogin() {
-    const username = document.getElementById('login-user').value.trim();
-    const password = document.getElementById('login-pass').value;
-    const errEl    = document.getElementById('login-error');
+    const username   = document.getElementById('login-user').value.trim();
+    const password   = document.getElementById('login-pass').value;
+    const errEl      = document.getElementById('login-error');
+    const rememberEl = document.getElementById('remember-me-toggle');
+    const remember   = rememberEl && rememberEl.checked;
 
     if (!username || !password) { errEl.textContent = 'Please fill in all fields.'; return; }
 
@@ -808,6 +963,15 @@ function doLogin() {
 
     const account = JSON.parse(stored);
     if (account.password !== btoa(password)) { errEl.textContent = 'Incorrect password.'; return; }
+
+    if (remember) {
+        localStorage.setItem('sga_last_user', username.toLowerCase());
+        localStorage.setItem('sga_remembered_user', username);
+    } else {
+        localStorage.removeItem('sga_last_user');
+        localStorage.removeItem('sga_remembered_user');
+        sessionStorage.setItem('sga_last_user', username.toLowerCase());
+    }
 
     currentUser = { username: account.username, studios: account.studios || [] };
     enterApp();
@@ -883,7 +1047,8 @@ function renderProfileStudios() {
                 </button>
                 ${s.role === 'admin'
                     ? `<button class="studio-action-btn" title="Manage studio" onclick="openStudioMgmt('${s.code}')">✎</button>`
-                    : `<button class="studio-action-btn remove" title="Leave studio" onclick="promptLeaveStudio('${s.code}')">×</button>`}
+                    : `<button class="studio-action-btn" title="View studio info" onclick="openStudioMgmt('${s.code}')">ℹ</button>
+                       <button class="studio-action-btn remove" title="Leave studio" onclick="promptLeaveStudio('${s.code}')">×</button>`}
             </div>
         </div>`;
     }).join('');
@@ -1010,11 +1175,8 @@ function profileCreateStudio() {
         members: [{ username: currentUser.username, role: 'admin', joined }]
     }));
 
-    // Add to user's studios list
-    const studios = currentUser.studios || [];
-    studios.push({ code, name: 'New Studio', role: 'admin' });
-    currentUser.studios = studios;
-    saveCurrentUser();
+    // Mark as pending — don't add to user's studio list until they press Create Studio
+    _pendingNewStudio = code;
 
     // Go straight to the management page to fill in details
     openStudioMgmt(code);
@@ -1065,7 +1227,8 @@ function removeStudio(index) {
 // ═══════════════════════════════════════════════════════
 //  STUDIO MANAGEMENT
 // ═══════════════════════════════════════════════════════
-let currentMgmtCode = null;
+let currentMgmtCode    = null;
+let _pendingNewStudio  = null; // code of a studio not yet committed to user's list
 
 function openStudioMgmt(code) {
     currentMgmtCode = code;
@@ -1087,11 +1250,34 @@ function openStudioMgmt(code) {
     document.getElementById('mgmt-location').value = studioData.location || '';
     document.getElementById('mgmt-contact').value  = studioData.contact  || '';
 
-    // Reset save button
-    const saveBtn = document.getElementById('mgmt-save-btn');
+    // Determine role
+    const myStudio  = (currentUser && currentUser.studios || []).find(s => s.code === code);
+    const isPending = _pendingNewStudio === code;
+    const isAdmin   = isPending || (myStudio && myStudio.role === 'admin');
+
+    // Toggle readonly mode on the overlay
+    const overlay = document.getElementById('studio-mgmt-overlay');
+    overlay.classList.toggle('readonly', !isAdmin);
+
+    // Reset save button and show/hide remove section
+    const saveBtn       = document.getElementById('mgmt-save-btn');
+    const removeSection = document.getElementById('mgmt-remove-section');
+    const removeBtn     = document.getElementById('mgmt-remove-studio-btn');
     if (saveBtn) {
-        saveBtn.textContent = studioData.name ? 'Save Changes' : 'Create Studio';
+        saveBtn.textContent = isPending ? 'Create Studio' : 'Save Changes';
         saveBtn.classList.remove('saved');
+    }
+    if (removeSection) removeSection.style.display = isPending ? 'none' : '';
+    if (removeBtn) removeBtn.textContent = isAdmin ? 'Leave / Remove Studio' : 'Leave Studio';
+
+    // In readonly mode, expand textareas to show full content without scrolling
+    if (!isAdmin) {
+        overlay.querySelectorAll('textarea.mgmt-input').forEach(ta => {
+            ta.style.height = 'auto';
+            ta.style.height = ta.scrollHeight + 'px';
+        });
+    } else {
+        overlay.querySelectorAll('textarea.mgmt-input').forEach(ta => ta.style.height = '');
     }
 
     // Render members
@@ -1106,6 +1292,14 @@ function openStudioMgmt(code) {
 
 function closeStudioMgmt() {
     document.getElementById('studio-mgmt-overlay').classList.remove('open');
+    // If the user backed out of a new studio without saving, discard it entirely
+    if (_pendingNewStudio && _pendingNewStudio === currentMgmtCode) {
+        localStorage.removeItem('sga_studio_' + currentMgmtCode);
+        _pendingNewStudio = null;
+        currentMgmtCode = null;
+        openProfileOverlay();
+        return;
+    }
     // Reload mixer if we were editing the active studio
     if (currentMgmtCode && activeStudioCode === currentMgmtCode) loadActiveGlazes();
     currentMgmtCode = null;
@@ -1115,6 +1309,14 @@ function closeStudioMgmt() {
 
 function saveStudioInfo() {
     if (!currentMgmtCode) return;
+    // If this is a brand-new studio, add it to the user's studio list now
+    if (_pendingNewStudio && _pendingNewStudio === currentMgmtCode) {
+        const studios = currentUser.studios || [];
+        studios.push({ code: currentMgmtCode, name: 'New Studio', role: 'admin' });
+        currentUser.studios = studios;
+        saveCurrentUser();
+        _pendingNewStudio = null;
+    }
     const key       = 'sga_studio_' + currentMgmtCode;
     const studioData = JSON.parse(localStorage.getItem(key) || '{}');
 
@@ -1171,7 +1373,7 @@ function renderMgmtMembers(studioData) {
                     title="${m.role === 'admin' ? 'Demote to member' : 'Promote to admin'}">
                     ${m.role === 'admin' ? 'Admin' : 'Member'}
                 </span>
-                ${m.username !== studioData.admin ? `<button class="member-remove-btn" onclick="removeMember('${currentMgmtCode}', ${i})">×</button>` : ''}
+                ${m.username !== studioData.admin ? `<button class="member-remove-btn" onclick="promptRemoveMember(${i})">×</button>` : ''}
             </div>
         </div>
     `).join('');
@@ -1190,14 +1392,65 @@ function toggleMemberRole(code, index) {
     renderMgmtMembers(studioData);
 }
 
+let _pendingRemoveMemberIndex = null;
+
+function promptRemoveMember(index) {
+    const studioData = JSON.parse(localStorage.getItem('sga_studio_' + currentMgmtCode) || '{}');
+    const members    = studioData.members || [];
+    const username   = members[index] ? members[index].username : 'this member';
+    _pendingRemoveMemberIndex = index;
+    const textEl = document.getElementById('mgmt-member-confirm-text');
+    if (textEl) textEl.textContent = `${username} will lose access to this studio's glazes.`;
+    const el = document.getElementById('mgmt-member-confirm');
+    if (el) el.style.display = 'flex';
+}
+
+function cancelRemoveMember() {
+    _pendingRemoveMemberIndex = null;
+    const el = document.getElementById('mgmt-member-confirm');
+    if (el) el.style.display = 'none';
+}
+
+function confirmRemoveMember() {
+    const el = document.getElementById('mgmt-member-confirm');
+    if (el) el.style.display = 'none';
+    if (_pendingRemoveMemberIndex !== null) {
+        removeMember(currentMgmtCode, _pendingRemoveMemberIndex);
+        _pendingRemoveMemberIndex = null;
+    }
+}
+
 function removeMember(code, index) {
     const key        = 'sga_studio_' + code;
     const studioData = JSON.parse(localStorage.getItem(key) || '{}');
     const members    = studioData.members || [];
     if (!members[index]) return;
+
+    const removedUsername = members[index].username;
+
+    // Remove from studio's member list
     members.splice(index, 1);
     studioData.members = members;
     localStorage.setItem(key, JSON.stringify(studioData));
+
+    // Remove the studio from the member's own account
+    const userKey     = 'sga_user_' + removedUsername.toLowerCase();
+    const userAccount = JSON.parse(localStorage.getItem(userKey) || '{}');
+    if (userAccount.studios) {
+        userAccount.studios = userAccount.studios.filter(s => s.code !== code);
+        localStorage.setItem(userKey, JSON.stringify(userAccount));
+    }
+
+    // If the removed user is the current session, update in-memory state
+    if (currentUser && currentUser.username.toLowerCase() === removedUsername.toLowerCase()) {
+        currentUser.studios = (currentUser.studios || []).filter(s => s.code !== code);
+        if (activeStudioCode === code) {
+            activeStudioCode = null;
+            localStorage.removeItem('sga_active_studio');
+            loadActiveGlazes();
+        }
+    }
+
     renderMgmtMembers(studioData);
 }
 
@@ -1215,7 +1468,8 @@ function renderMgmtGlazes() {
     const myStudio = currentUser && currentUser.studios
         ? currentUser.studios.find(s => s.code === currentMgmtCode)
         : null;
-    if (section) section.style.display = (myStudio && myStudio.role === 'admin') ? 'block' : 'none';
+    const isAdmin = (myStudio && myStudio.role === 'admin') || _pendingNewStudio === currentMgmtCode;
+    if (section) section.style.display = isAdmin ? 'block' : 'none';
 
     if (glazes.length === 0) {
         list.innerHTML = '<p style="font-size:11px;color:#c8bfb5;text-align:center;margin:0 0 12px">No glazes yet — add your first one below</p>';
@@ -1340,7 +1594,7 @@ function enterApp() {
 
 // Check for existing session on load
 (function checkSession() {
-    const lastUser = localStorage.getItem('sga_last_user');
+    const lastUser = localStorage.getItem('sga_last_user') || sessionStorage.getItem('sga_last_user');
     if (lastUser) {
         const stored = localStorage.getItem('sga_user_' + lastUser);
         if (stored) {
@@ -1423,18 +1677,21 @@ window.addEventListener('resize', () => {
     if (typeof resizeCanvas === 'function') {
         resizeCanvas(container.offsetWidth, container.offsetHeight);
         // Recompute layout
-        const scale = width / 440;
-        TILE_SIZE = Math.round(320 * scale);
-        TILE_CX   = Math.round(width / 2);
-        const chromeElR     = document.getElementById('app-chrome');
-        const chromeBottomR = chromeElR ? chromeElR.getBoundingClientRect().height : Math.round(290 * scale);
-        const carouselTopR  = height - Math.round(140 * scale) - Math.round(SWATCH/2) - 22;
-        TILE_CY = Math.round((chromeBottomR + carouselTopR) / 2);
+        const _isDesktopR = document.body.classList.contains('desktop-mode');
+        const _ewR  = _isDesktopR ? Math.min(width, 480) : width;
+        const scale = _ewR / 440;
         SWATCH    = Math.round(108 * scale);
         GAP       = Math.round(18  * scale);
         STEP      = SWATCH + GAP;
         START_X   = Math.round(62  * scale);
+        TILE_SIZE = Math.round(320 * scale * (_isDesktopR ? 1.2 : 1));
+        TILE_CX   = Math.round(width / 2);
+        const chromeElR     = document.getElementById('app-chrome');
+        const chromeBottomR = chromeElR ? chromeElR.getBoundingClientRect().height : Math.round(290 * scale);
+        const carouselTopR  = height - 140 - Math.round(SWATCH / 2) - 22;
+        TILE_CY = Math.round((chromeBottomR + carouselTopR) / 2);
         if (typeof fitPanels === 'function') fitPanels();
+        updateCarouselArrows();
     }
 });
 
@@ -1555,8 +1812,116 @@ window.addEventListener('load', fitPanels);
 fitPanels();
 
 const cursor = document.getElementById('touch-cursor');
-document.getElementById('canvas-container').addEventListener('mouseenter', ()=> cursor.style.display='block');
+document.getElementById('canvas-container').addEventListener('mouseenter', () => {
+    if (!document.body.classList.contains('desktop-mode')) cursor.style.display = 'block';
+});
 document.getElementById('canvas-container').addEventListener('mouseleave', ()=> cursor.style.display='none');
+
 document.addEventListener('mousemove', e=>{ cursor.style.left=e.clientX+'px'; cursor.style.top=e.clientY+'px'; });
 document.addEventListener('mousedown', ()=> cursor.classList.add('pressed'));
 document.addEventListener('mouseup',   ()=> cursor.classList.remove('pressed'));
+
+
+// ═══════════════════════════════════════════════════════
+//  DESKTOP CAROUSEL ARROWS
+// ═══════════════════════════════════════════════════════
+function carouselPrev() {
+    if (desktopCarouselStart > 0) {
+        desktopCarouselStart--;
+        desktopSlideFrom      =  1; // tiles enter from the left
+        desktopSlideOffset    =  1;
+        desktopSlideStartTime = performance.now();
+        updateCarouselArrows();
+    }
+}
+
+function carouselNext() {
+    if (desktopCarouselStart + 5 < studioGlazes.length) {
+        desktopCarouselStart++;
+        desktopSlideFrom      = -1; // tiles enter from the right
+        desktopSlideOffset    = -1;
+        desktopSlideStartTime = performance.now();
+        updateCarouselArrows();
+    }
+}
+
+function updateCarouselArrows() {
+    const prevBtn = document.getElementById('carousel-prev');
+    const nextBtn = document.getElementById('carousel-next');
+    if (!prevBtn || !nextBtn) return;
+
+    const isDesktop = document.body.classList.contains('desktop-mode');
+    if (!isDesktop || activeTab !== 'mixer' || studioGlazes.length <= 5) {
+        prevBtn.style.display = 'none';
+        nextBtn.style.display = 'none';
+        return;
+    }
+
+    prevBtn.style.display = 'flex';
+    nextBtn.style.display = 'flex';
+    prevBtn.disabled = desktopCarouselStart <= 0;
+    nextBtn.disabled = desktopCarouselStart + 5 >= studioGlazes.length;
+
+    // Position arrows flanking the centered 5-tile row
+    const container = document.getElementById('canvas-container');
+    if (!container) return;
+    const rect        = container.getBoundingClientRect();
+    const displayCount = Math.min(5, studioGlazes.length - desktopCarouselStart);
+    const rowWidth    = displayCount * STEP - GAP;
+    const centerX     = rect.left + width / 2;
+    const arrowOffset = rowWidth / 2 + 28;
+    const carouselY   = height - 140;
+    const arrowTop    = rect.top + carouselY;
+
+    prevBtn.style.left = (centerX - arrowOffset - prevBtn.offsetWidth) + 'px';
+    nextBtn.style.left = (centerX + arrowOffset) + 'px';
+    prevBtn.style.top  = (arrowTop - prevBtn.offsetHeight / 2) + 'px';
+    nextBtn.style.top  = (arrowTop - nextBtn.offsetHeight / 2) + 'px';
+}
+
+// ═══════════════════════════════════════════════════════
+//  LAYOUT TOGGLE  (dev tool — remove before launch)
+// ═══════════════════════════════════════════════════════
+function toggleLayout() {
+    const isDesktop = document.body.classList.toggle('desktop-mode');
+    const btn = document.getElementById('layout-toggle');
+    if (btn) btn.textContent = isDesktop ? 'Desktop View' : 'Mobile View';
+    if (cursor) cursor.style.display = 'none'; // always hide until next mouseenter
+    sessionStorage.setItem('sga-layout', isDesktop ? 'desktop' : 'mobile');
+    // Resize canvas after the CSS transition settles (~50ms)
+    setTimeout(() => {
+        const container = document.getElementById('canvas-container');
+        if (typeof resizeCanvas === 'function') {
+            resizeCanvas(container.offsetWidth, container.offsetHeight);
+            const _isDesktopT = document.body.classList.contains('desktop-mode');
+            const _ewT  = _isDesktopT ? Math.min(width, 480) : width;
+            const scale = _ewT / 440;
+            SWATCH   = Math.round(108 * scale);
+            GAP      = Math.round(18  * scale);
+            STEP     = SWATCH + GAP;
+            START_X  = Math.round(62  * scale);
+            TILE_SIZE = Math.round(320 * scale * (_isDesktopT ? 1.2 : 1));
+            TILE_CX   = Math.round(width / 2);
+            const chromeEl  = document.getElementById('app-chrome');
+            const chromeBot = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
+            const carTop    = height - 140 - Math.round(SWATCH / 2) - 22;
+            TILE_CY  = Math.round((chromeBot + carTop) / 2);
+        }
+        scrollX = 0; targetScrollX = 0;
+        desktopCarouselStart = 0; desktopSlideOffset = 0; desktopSlideFrom = 0;
+        fitPanels();
+        updateCarouselArrows();
+        if (typeof redraw === 'function') redraw();
+    }, 50);
+}
+
+// Auto-init: desktop mode when viewport > 900 px, or from saved session preference
+(function initLayout() {
+    const saved      = sessionStorage.getItem('sga-layout');
+    const useDesktop = saved ? saved === 'desktop' : window.innerWidth > 900;
+    if (useDesktop) {
+        document.body.classList.add('desktop-mode');
+        const btn = document.getElementById('layout-toggle');
+        if (btn) btn.textContent = 'Desktop View';
+    }
+})();
