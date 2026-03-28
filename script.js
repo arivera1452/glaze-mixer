@@ -67,7 +67,7 @@ function _recomputeLayout() {
     TILE_SIZE = Math.round(320 * scale * (_isDesktop ? 1.2 : 1));
     TILE_CX   = Math.round(width / 2);
     // Scale the carousel bottom offset so it shrinks on small screens
-    CAROUSEL_BOTTOM = Math.round(Math.max(80 * scale, 90));
+    CAROUSEL_BOTTOM = Math.round(Math.max(90 * scale, 115));
     const chromeEl     = document.getElementById('app-chrome');
     const chromeBottom = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
     const carouselTop  = height - CAROUSEL_BOTTOM - Math.round(SWATCH / 2) - 22;
