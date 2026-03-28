@@ -487,19 +487,23 @@ function updateMixerUI() {
     }
 }
 
-function touchStarted() {
-    if (isOverlayOpen() || activeTab !== 'mixer') return true;
-    dragStartX = mouseX; dragStartScroll = targetScrollX; isDragging = false;
-    return false; // prevent default only when interacting with the mixer canvas
+function _isCanvasTouch(e) {
+    const cnv = document.querySelector('#canvas-container canvas');
+    return cnv && e && e.target === cnv;
 }
-function touchMoved() {
-    if (isOverlayOpen() || activeTab !== 'mixer') return true;
+function touchStarted(e) {
+    if (!_isCanvasTouch(e) || isOverlayOpen() || activeTab !== 'mixer') return true;
+    dragStartX = mouseX; dragStartScroll = targetScrollX; isDragging = false;
+    return false; // prevent scroll only when dragging on the canvas
+}
+function touchMoved(e) {
+    if (!_isCanvasTouch(e) || isOverlayOpen() || activeTab !== 'mixer') return true;
     mouseDragged();
     return false;
 }
 function touchEnded() {
     if (!isOverlayOpen() && activeTab === 'mixer') mouseReleased();
-    return true; // never block touch end
+    return true;
 }
 
 // ═══════════════════════════════════════════════════════
