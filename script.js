@@ -493,8 +493,11 @@ function updateMixerUI() {
 }
 
 function _isCanvasTouch(e) {
-    const cnv = document.querySelector('#canvas-container canvas');
-    return cnv && e && e.target === cnv;
+    if (!e || !e.target) return false;
+    // Return false only if the touch landed on an interactive UI element —
+    // those should fire normally. Anything else (canvas, transparent mixer
+    // panel, etc.) is canvas-area interaction.
+    return !e.target.closest('button, input, textarea, select, a, label');
 }
 function touchStarted(e) {
     if (!_isCanvasTouch(e) || isOverlayOpen() || activeTab !== 'mixer') return true;
