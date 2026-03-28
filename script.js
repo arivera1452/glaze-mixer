@@ -1861,6 +1861,12 @@ document.addEventListener('mousemove', e=>{ cursor.style.left=e.clientX+'px'; cu
 document.addEventListener('mousedown', ()=> cursor.classList.add('pressed'));
 document.addEventListener('mouseup',   ()=> cursor.classList.remove('pressed'));
 
+// Direct touch handler for profile pill — bypasses p5.js interference
+document.getElementById('profile-pill').addEventListener('touchend', function(e) {
+    e.preventDefault();
+    openProfileOverlay();
+});
+
 
 // ═══════════════════════════════════════════════════════
 //  DESKTOP CAROUSEL ARROWS

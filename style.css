@@ -1004,6 +1004,7 @@
             justify-content: center;
             cursor: pointer;
             pointer-events: auto;
+            touch-action: manipulation;
             z-index: 20;
             transition: background 0.2s, transform 0.1s;
         }
