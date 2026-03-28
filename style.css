@@ -51,7 +51,7 @@
             width: 100%;
         }
 
-        #logo-wrap { width: clamp(40px, 12vw, 90px); height: auto; margin-bottom: 0; }
+        #logo-wrap { width: clamp(44px, 14vw, 90px); height: auto; margin-bottom: 0; }
         #logo-wrap svg { width: 100%; height: auto; }
         #logo-wrap svg rect { transition: fill 0.5s ease; }
 

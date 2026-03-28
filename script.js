@@ -1908,8 +1908,10 @@ function toggleLayout() {
 
 // Auto-init: desktop mode when viewport > 900 px, or from saved session preference
 (function initLayout() {
+    // Never apply desktop mode on narrow screens regardless of saved preference
+    if (window.innerWidth <= 900) return;
     const saved      = sessionStorage.getItem('sga-layout');
-    const useDesktop = saved ? saved === 'desktop' : window.innerWidth > 900;
+    const useDesktop = saved ? saved === 'desktop' : true;
     if (useDesktop) {
         document.body.classList.add('desktop-mode');
         const btn = document.getElementById('layout-toggle');
