@@ -67,7 +67,7 @@ function _recomputeLayout() {
     TILE_SIZE = Math.round(320 * scale * (_isDesktop ? 1.2 : 1));
     TILE_CX   = Math.round(width / 2);
     // Scale the carousel bottom offset so it shrinks on small screens
-    CAROUSEL_BOTTOM = Math.round(Math.max(90 * scale, 115));
+    CAROUSEL_BOTTOM = Math.round(Math.max(80 * scale, 90));
     const chromeEl     = document.getElementById('app-chrome');
     const chromeBottom = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
     const carouselTop  = height - CAROUSEL_BOTTOM - Math.round(SWATCH / 2) - 22;
@@ -421,16 +421,6 @@ function drawCarousel() {
         ctx.restore();
     }
 
-    // Mobile: swipe hint
-    if (!isDesktop) {
-        const hintAlpha = map(abs(targetScrollX), 0, 60, 180, 0, true);
-        if (hintAlpha > 0) {
-            fill(red(color('#b5a898')), green(color('#b5a898')), blue(color('#b5a898')), hintAlpha);
-            textAlign(CENTER, CENTER);
-            textSize(10); textStyle(NORMAL);
-            text("← swipe to browse →", width/2, height - CAROUSEL_BOTTOM + SWATCH/2 + 36);
-        }
-    }
 }
 
 function isOverlayOpen() {
