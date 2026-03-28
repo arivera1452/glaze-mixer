@@ -494,23 +494,57 @@ function updateMixerUI() {
 
 function _isCanvasTouch(e) {
     if (!e || !e.target) return false;
-    // Return false only if the touch landed on an interactive UI element —
-    // those should fire normally. Anything else (canvas, transparent mixer
-    // panel, etc.) is canvas-area interaction.
     return !e.target.closest('button, input, textarea, select, a, label');
 }
+
+let _touchState = null;
+
+function _canvasXY(e, useChanged) {
+    const list = useChanged ? e.changedTouches : e.touches;
+    if (!list || !list[0]) return null;
+    const rect = document.getElementById('canvas-container').getBoundingClientRect();
+    return { x: list[0].clientX - rect.left, y: list[0].clientY - rect.top };
+}
+
 function touchStarted(e) {
     if (!_isCanvasTouch(e) || isOverlayOpen() || activeTab !== 'mixer') return true;
-    dragStartX = mouseX; dragStartScroll = targetScrollX; isDragging = false;
-    return false; // prevent scroll only when dragging on the canvas
-}
-function touchMoved(e) {
-    if (!_isCanvasTouch(e) || isOverlayOpen() || activeTab !== 'mixer') return true;
-    mouseDragged();
+    const pos = _canvasXY(e, false);
+    if (!pos) return true;
+    _touchState = { startX: pos.x, startY: pos.y, curX: pos.x, curY: pos.y,
+                    startScroll: targetScrollX, dragging: false };
     return false;
 }
-function touchEnded() {
-    if (!isOverlayOpen() && activeTab === 'mixer') mouseReleased();
+
+function touchMoved(e) {
+    if (!_touchState || !_isCanvasTouch(e) || isOverlayOpen() || activeTab !== 'mixer') return true;
+    const pos = _canvasXY(e, false);
+    if (!pos) return true;
+    _touchState.curX = pos.x;
+    _touchState.curY = pos.y;
+    const dx = pos.x - _touchState.startX;
+    if (Math.abs(dx) > DRAG_THRESHOLD) _touchState.dragging = true;
+    if (_touchState.dragging) {
+        const totalWidth = (studioGlazes.length - 1) * STEP;
+        targetScrollX = Math.max(-(totalWidth - (width - START_X * 2)), Math.min(0, _touchState.startScroll + dx));
+    }
+    return false;
+}
+
+function touchEnded(e) {
+    if (!isOverlayOpen() && activeTab === 'mixer' && _touchState) {
+        if (!_touchState.dragging) {
+            const pos = _canvasXY(e, true) || { x: _touchState.curX, y: _touchState.curY };
+            for (let g of studioGlazes) {
+                const wx = g.worldX + scrollX;
+                if (pos.x >= wx - SWATCH/2 && pos.x <= wx + SWATCH/2 &&
+                    pos.y >= g.worldY - SWATCH/2 - 6 && pos.y <= g.worldY + SWATCH/2 + 6) {
+                    handleSelect(g);
+                    break;
+                }
+            }
+        }
+    }
+    _touchState = null;
     return true;
 }
 
