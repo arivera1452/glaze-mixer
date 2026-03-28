@@ -494,7 +494,7 @@ function updateMixerUI() {
 
 function _isCanvasTouch(e) {
     if (!e || !e.target) return false;
-    return !e.target.closest('button, input, textarea, select, a, label');
+    return !e.target.closest('button, input, textarea, select, a, label, [onclick]');
 }
 
 let _touchState = null;
