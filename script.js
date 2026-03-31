@@ -1920,6 +1920,7 @@ function updateCarouselArrows() {
 // ═══════════════════════════════════════════════════════
 function toggleLayout() {
     const isDesktop = document.body.classList.toggle('desktop-mode');
+    document.body.classList.toggle('mobile-preview', !isDesktop);
     const btn = document.getElementById('layout-toggle');
     if (btn) btn.textContent = isDesktop ? 'Desktop View' : 'Mobile View';
     if (cursor) cursor.style.display = 'none'; // always hide until next mouseenter
@@ -1949,5 +1950,7 @@ function toggleLayout() {
         document.body.classList.add('desktop-mode');
         const btn = document.getElementById('layout-toggle');
         if (btn) btn.textContent = 'Desktop View';
+    } else {
+        document.body.classList.add('mobile-preview');
     }
 })();

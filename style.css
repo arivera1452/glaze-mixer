@@ -1717,6 +1717,57 @@
         @media (max-width: 480px) { #layout-toggle { display: none; } }
 
         /* ══════════════════════════════════════════════════
+           MOBILE PREVIEW PHONE FRAME (dev — remove before launch)
+        ══════════════════════════════════════════════════ */
+
+        /* Light backdrop + flex-centering for the phone */
+        body.mobile-preview {
+            background: #e8e2d9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100dvh;
+            overflow: hidden;
+        }
+
+        /* Canvas shrinks to phone dimensions and gets rounded screen corners */
+        body.mobile-preview #canvas-container {
+            width: 390px;
+            height: 844px;
+            border-radius: 44px;
+            flex-shrink: 0;
+            box-shadow: 0 40px 100px rgba(0,0,0,0.75);
+        }
+
+        /* Phone frame overlay — hidden until mobile-preview is active */
+        #phone-frame {
+            display: none;
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 99995; /* above app, below layout-toggle */
+        }
+        body.mobile-preview #phone-frame { display: block; }
+
+        /* Bezel ring + full-screen dark surround via box-shadow */
+        #phone-frame::before {
+            content: '';
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            width: 390px;
+            height: 844px;
+            transform: translate(-50%, -50%);
+            border-radius: 44px;
+            box-shadow:
+                0 0 0 12px #1e1812,                   /* phone body / bezel */
+                0 0 0 13px rgba(255,255,255,0.06),     /* subtle outer rim */
+                0 0 0 100vmax #e8e2d9;                 /* full-screen light fill */
+        }
+
+        #phone-frame::after { content: none; }
+
+        /* ══════════════════════════════════════════════════
            DESKTOP MODE
            Applied via .desktop-mode on <body>
            Auto-set when viewport > 900 px; toggle overrides.
