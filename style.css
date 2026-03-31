@@ -419,7 +419,7 @@
         .stage-body {
             display: flex;
             gap: 14px;
-            align-items: flex-start;
+            align-items: stretch;
         }
 
         /* ── Single photo slot ── */
@@ -593,7 +593,6 @@
 
         .stage-notes {
             flex: 1;
-            min-height: 140px;
             background: #faf8f5;
             border: 1.5px solid #e8e2d9;
             border-radius: 14px;
@@ -604,6 +603,7 @@
             line-height: 1.6;
             resize: none;
             outline: none;
+            overflow-y: auto;
             transition: border-color 0.2s;
         }
         .stage-notes::placeholder { color: #c8bfb5; }
