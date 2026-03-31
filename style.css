@@ -211,6 +211,7 @@
             border-radius: 22px;
             margin-bottom: 20px;
             overflow: hidden;
+            overflow: clip;
             box-shadow: 0 2px 12px rgba(0,0,0,0.07);
         }
 
@@ -379,6 +380,7 @@
         /* collapsible body */
         .piece-body {
             overflow: hidden;
+            overflow: clip;
             max-height: 0;
             transition: max-height 0.3s ease;
         }

@@ -67,7 +67,7 @@ function _recomputeLayout() {
     TILE_SIZE = Math.round(320 * scale * (_isDesktop ? 1.2 : 1));
     TILE_CX   = Math.round(width / 2);
     // Scale the carousel bottom offset so it shrinks on small screens
-    CAROUSEL_BOTTOM = Math.round(Math.max(80 * scale, 90));
+    CAROUSEL_BOTTOM = Math.round(Math.max(80 * scale, _isDesktop ? 140 : 90));
     const chromeEl     = document.getElementById('app-chrome');
     const chromeBottom = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
     const carouselTop  = height - CAROUSEL_BOTTOM - Math.round(SWATCH / 2) - 22;
@@ -1906,7 +1906,7 @@ function updateCarouselArrows() {
     const rowWidth    = displayCount * STEP - GAP;
     const centerX     = rect.left + width / 2;
     const arrowOffset = rowWidth / 2 + 28;
-    const carouselY   = height - 140;
+    const carouselY   = height - CAROUSEL_BOTTOM;
     const arrowTop    = rect.top + carouselY;
 
     prevBtn.style.left = (centerX - arrowOffset - prevBtn.offsetWidth) + 'px';
