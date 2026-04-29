@@ -1645,23 +1645,39 @@
         }
 
         .glaze-card-swatch {
-            width: 44px; height: 44px;
+            width: 56px; height: 56px;
             border-radius: 10px;
             flex-shrink: 0;
             position: relative;
             overflow: hidden;
             cursor: pointer;
-            border: 2px solid rgba(0,0,0,0.06);
+            border: 1.5px dashed #d5ccc2;
+            background: #f0ebe4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: border-color 0.2s;
         }
-        .glaze-card-swatch input[type="color"] {
+        .glaze-card-swatch:hover { border-color: #8c6a3f; }
+        .glaze-card-swatch.has-photo { border-style: solid; border-color: transparent; }
+        .glaze-card-swatch img {
+            width: 100%; height: 100%;
+            object-fit: cover;
+            display: block;
+            pointer-events: none;
+        }
+        .glaze-swatch-placeholder {
+            font-size: 22px;
+            color: #c8bfb5;
+            pointer-events: none;
+        }
+        .glaze-card-swatch input[type="file"] {
             position: absolute;
-            inset: -4px;
-            width: calc(100% + 8px);
-            height: calc(100% + 8px);
+            inset: 0;
             opacity: 0;
             cursor: pointer;
-            border: none;
-            padding: 0;
+            width: 100%;
+            height: 100%;
         }
 
         .glaze-card-fields {

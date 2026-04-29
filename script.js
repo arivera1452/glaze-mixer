@@ -120,9 +120,59 @@ function hexToRgb(hex) {
     return [r, g, b];
 }
 
+// Resize an image data URL to fit within maxSize px on the longest edge
+function resizeImage(dataURL, maxSize, quality, callback) {
+    const img = new Image();
+    img.onload = () => {
+        const scale  = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const w      = Math.round(img.width  * scale);
+        const h      = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        callback(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.src = dataURL;
+}
+
+// Extract average color from an image data URL
+function extractAvgColor(dataURL, callback) {
+    const img = new Image();
+    img.onload = () => {
+        const size = 32;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, size, size);
+        const data = ctx.getImageData(0, 0, size, size).data;
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i + 3] > 128) { r += data[i]; g += data[i+1]; b += data[i+2]; count++; }
+        }
+        callback(count ? rgbToHex([Math.round(r/count), Math.round(g/count), Math.round(b/count)]) : '#888888');
+    };
+    img.src = dataURL;
+}
+
 // Convert rgb array to hex
 function rgbToHex(rgb) {
     return '#' + rgb.map(v => Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
+}
+
+// Image cache for glaze photos — keyed by data URL
+const _glazeImageCache = {};
+function getGlazeImage(photoURL) {
+    if (!photoURL) return null;
+    if (_glazeImageCache[photoURL] instanceof HTMLImageElement) return _glazeImageCache[photoURL];
+    if (_glazeImageCache[photoURL] === 'loading') return null;
+    _glazeImageCache[photoURL] = 'loading';
+    const img = new Image();
+    img.onload = () => {
+        _glazeImageCache[photoURL] = img;
+        if (typeof redraw === 'function') redraw();
+    };
+    img.src = photoURL;
+    return null;
 }
 
 // Build glaze objects from a def array — simple flat colors, no textures.
@@ -130,7 +180,8 @@ function buildGlazes(defs) {
     return defs.map((def, i) => {
         const rgb = def.rgb || hexToRgb(def.color || '#888888');
         return {
-            name: def.name,
+            name:  def.name,
+            photo: def.photo || null,
             rgb,
             _col: null,
             get col() { if (!this._col) this._col = color(...this.rgb); return this._col; }
@@ -239,9 +290,29 @@ function drawTile() {
         let displayCol = selectedL1.col;
         if (selectedL2) displayCol = lerpColor(selectedL1.col, selectedL2.col, 0.65);
 
+        // Draw shadow + color base
         fill(displayCol);
         square(TILE_CX, TILE_CY, TILE_SIZE, 8);
         drawingContext.shadowColor = 'transparent';
+
+        // Draw glaze photo(s) clipped to tile bounds
+        const img1 = selectedL1.photo ? getGlazeImage(selectedL1.photo) : null;
+        const img2 = selectedL2 && selectedL2.photo ? getGlazeImage(selectedL2.photo) : null;
+        if (img1 || img2) {
+            drawingContext.save();
+            rrPath(drawingContext, tx, ty, TILE_SIZE, TILE_SIZE, 8);
+            drawingContext.clip();
+            if (img1) {
+                drawingContext.globalAlpha = 1;
+                drawingContext.drawImage(img1, tx, ty, TILE_SIZE, TILE_SIZE);
+            }
+            if (img2) {
+                drawingContext.globalAlpha = 0.5;
+                drawingContext.drawImage(img2, tx, ty, TILE_SIZE, TILE_SIZE);
+                drawingContext.globalAlpha = 1;
+            }
+            drawingContext.restore();
+        }
 
         // Tint logo/wordmark from the display colour
         tintLogo(displayCol);
@@ -358,7 +429,7 @@ function drawCarousel() {
         const lift   = (isBase || isTop) ? -6 : 0;
         const sy     = cy + lift;
 
-        // Shadow + flat fill
+        // Shadow + flat fill (always drawn; image overlaid on top if available)
         drawingContext.shadowColor   = isBase||isTop ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.10)';
         drawingContext.shadowBlur    = isBase||isTop ? 18 : 8;
         drawingContext.shadowOffsetY = isBase||isTop ? 8  : 3;
@@ -366,6 +437,17 @@ function drawCarousel() {
         rectMode(CENTER);
         square(cx, sy, SWATCH, 12);
         drawingContext.shadowColor = 'transparent';
+
+        // Draw photo over the color swatch if available
+        const glazeImg = g.photo ? getGlazeImage(g.photo) : null;
+        if (glazeImg) {
+            const sx = cx - SWATCH / 2, sy2 = sy - SWATCH / 2;
+            drawingContext.save();
+            rrPath(drawingContext, sx, sy2, SWATCH, SWATCH, 12);
+            drawingContext.clip();
+            drawingContext.drawImage(glazeImg, sx, sy2, SWATCH, SWATCH);
+            drawingContext.restore();
+        }
 
         // Selection ring
         noFill();
@@ -1601,9 +1683,10 @@ function renderMgmtGlazes() {
 
     list.innerHTML = glazes.map((g, i) => `
         <div class="glaze-card">
-            <div class="glaze-card-swatch" style="background:${g.color || '#cccccc'}">
-                <input type="color" value="${g.color || '#cccccc'}"
-                    oninput="updateGlazeField('${currentMgmtCode}',${i},'color',this.value)">
+            <div class="glaze-card-swatch${g.photo ? ' has-photo' : ''}">
+                ${g.photo ? `<img src="${g.photo}" alt="${g.name || 'Glaze'}">` : '<span class="glaze-swatch-placeholder">+</span>'}
+                <input type="file" accept="image/*"
+                    onchange="handleGlazePhoto(event,'${currentMgmtCode}',${i})">
             </div>
             <div class="glaze-card-fields">
                 <input class="glaze-mini-input" type="text"
@@ -1628,7 +1711,7 @@ function addStudioGlaze() {
     const key        = 'sga_studio_' + currentMgmtCode;
     const studioData = JSON.parse(localStorage.getItem(key) || '{}');
     const glazes     = studioData.glazes || [];
-    glazes.push({ name: '', color: '#8c6a3f', temp: '', notes: '' });
+    glazes.push({ name: '', color: '#888888', photo: null, temp: '', notes: '' });
     studioData.glazes = glazes;
     localStorage.setItem(key, JSON.stringify(studioData));
     renderMgmtGlazes();
@@ -1650,6 +1733,46 @@ function updateGlazeField(code, index, field, value) {
     }
     // Reload mixer if this studio is active
     if (activeStudioCode === code && field === 'color') loadActiveGlazes();
+}
+
+function handleGlazePhoto(e, code, index) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = ''; // reset so same file can be re-selected
+    const reader = new FileReader();
+    reader.onload = ev => {
+        resizeImage(ev.target.result, 480, 0.82, dataURL => {
+            extractAvgColor(dataURL, avgColor => {
+                const key        = 'sga_studio_' + code;
+                const studioData = JSON.parse(localStorage.getItem(key) || '{}');
+                const glazes     = studioData.glazes || [];
+                if (!glazes[index]) return;
+                glazes[index].photo = dataURL;
+                glazes[index].color = avgColor;
+                studioData.glazes   = glazes;
+                try {
+                    localStorage.setItem(key, JSON.stringify(studioData));
+                } catch(err) {
+                    alert('Storage full — try a smaller image.');
+                    return;
+                }
+                // Update just this swatch in-place — no full re-render
+                const cards  = document.querySelectorAll('.glaze-card');
+                const swatch = cards[index] && cards[index].querySelector('.glaze-card-swatch');
+                if (swatch) {
+                    swatch.classList.add('has-photo');
+                    const old = swatch.querySelector('img, span.glaze-swatch-placeholder');
+                    if (old) old.remove();
+                    const img   = document.createElement('img');
+                    img.src     = dataURL;
+                    img.alt     = glazes[index].name || 'Glaze';
+                    swatch.insertBefore(img, swatch.querySelector('input[type="file"]'));
+                }
+                if (activeStudioCode === code) loadActiveGlazes();
+            });
+        });
+    };
+    reader.readAsDataURL(file);
 }
 
 function removeStudioGlaze(code, index) {
@@ -1775,7 +1898,7 @@ function hslToHex(h,s,l) {
 
 function tintLogo(col) {
     const [h,s]=rgbToHsl(red(col),green(col),blue(col));
-    const effS=Math.min(s,0.85);
+    const effS=Math.min(s*3.5,0.95);
     const stops=[0.78,0.62,0.46,0.30,0.16];
     ['logo-l5','logo-l4','logo-l3','logo-l2','logo-l1'].forEach((id,i)=>{
         const el=document.getElementById(id);
@@ -1792,7 +1915,7 @@ function tintLogoGrey() {
 
 function tintWordmark(col) {
     const [h,s]=rgbToHsl(red(col),green(col),blue(col));
-    const hex=hslToHex(h,Math.min(s,0.85),0.28);
+    const hex=hslToHex(h,Math.min(s*3.5,0.95),0.28);
     document.querySelectorAll('#wordmark-svg path').forEach(p=>p.style.fill=hex);
 }
 
