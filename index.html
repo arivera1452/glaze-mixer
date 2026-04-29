@@ -111,6 +111,21 @@
         </div>
     </div>
 
+    <!-- ══ PIECE EDIT OVERLAY ══ -->
+    <div id="piece-edit-overlay">
+        <div id="piece-edit-sheet-handle"></div>
+        <div id="piece-edit-header">
+            <button id="piece-edit-back" onclick="closePieceOverlay()">&#8592;</button>
+            <input id="piece-edit-name" type="text" placeholder="Untitled piece"
+                oninput="handleOverlayName(event)">
+            <div id="piece-edit-header-spacer"></div>
+        </div>
+        <div id="piece-edit-body"></div>
+        <div class="piece-delete-row">
+            <button class="piece-delete-btn" id="piece-edit-delete-btn">Delete piece</button>
+        </div>
+    </div>
+
     <!-- ── Lightbox overlay ── -->
     <div id="lightbox">
         <button id="lightbox-close" onclick="closeLightbox()">×</button>
@@ -133,7 +148,7 @@
     ══════════════════════════════ -->
     <div id="studio-mgmt-overlay">
         <div id="studio-mgmt-header">
-            <button id="studio-mgmt-back" onclick="closeStudioMgmt()">← Back</button>
+            <button id="studio-mgmt-back" onclick="closeStudioMgmt()">&#8592;</button>
             <h2 id="studio-mgmt-title">Studio</h2>
         </div>
         <div id="studio-mgmt-body">
@@ -310,7 +325,7 @@
          AUTH SCREEN
     ══════════════════════════════ -->
     <div id="auth-screen" class="screen-overlay hidden">
-        <button id="auth-back" onclick="showHome()">← Back</button>
+        <button id="auth-back" onclick="showHome()">&#8592;</button>
 
         <div id="auth-logo-wrap">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 413.63 666.44">

@@ -49,7 +49,7 @@ let START_X   = 62;
 let TILE_SIZE      = 320;
 let TILE_CX        = 220;
 let TILE_CY        = 515;
-let CAROUSEL_BOTTOM = 110; // px from bottom to carousel center — scales with screen
+let CAROUSEL_BOTTOM = 130; // px from bottom to carousel center — scales with screen
 
 let dragStartX      = 0;
 let dragStartScroll = 0;
@@ -67,7 +67,7 @@ function _recomputeLayout() {
     TILE_SIZE = Math.round(320 * scale * (_isDesktop ? 1.2 : 1));
     TILE_CX   = Math.round(width / 2);
     // Scale the carousel bottom offset so it shrinks on small screens
-    CAROUSEL_BOTTOM = Math.round(Math.max(80 * scale, _isDesktop ? 140 : 90));
+    CAROUSEL_BOTTOM = Math.round(Math.max(80 * scale, _isDesktop ? 160 : 110));
     const chromeEl     = document.getElementById('app-chrome');
     const chromeBottom = chromeEl ? chromeEl.getBoundingClientRect().height : Math.round(290 * scale);
     const carouselTop  = height - CAROUSEL_BOTTOM - Math.round(SWATCH / 2) - 22;
@@ -260,7 +260,7 @@ function drawTile() {
         } else {
             textSize(22); textStyle(BOLD);
             text(selectedL1.name, TILE_CX, TILE_CY - 8);
-            textSize(10); textStyle(NORMAL);
+            textSize(12); textStyle(NORMAL);
             text("BASE LAYER", TILE_CX, TILE_CY + 22);
         }
     } else {
@@ -273,16 +273,16 @@ function drawTile() {
         if (studioGlazes.length === 0) {
             if (activeStudioCode) {
                 text("NO GLAZES IN THIS STUDIO", TILE_CX, TILE_CY - 6);
-                textSize(10);
+                textSize(11);
                 text("add glazes in studio settings", TILE_CX, TILE_CY + 14);
             } else {
                 text("NO STUDIO SELECTED", TILE_CX, TILE_CY - 6);
-                textSize(10);
+                textSize(11);
                 text("set a studio active in your profile", TILE_CX, TILE_CY + 14);
             }
         } else {
             text("SELECT A GLAZE BELOW", TILE_CX, TILE_CY - 6);
-            textSize(10);
+            textSize(11);
             text("to preview on tile", TILE_CX, TILE_CY + 14);
         }
     }
@@ -293,7 +293,7 @@ function drawTile() {
         const studioName = (nameSpan ? nameSpan.textContent : '').toUpperCase();
         const labelY     = TILE_CY + TILE_SIZE / 2 + 22;
         const prefix     = 'VIEWING  ';
-        textSize(9);
+        textSize(10);
         textStyle(NORMAL);
         textAlign(LEFT, CENTER);
         noStroke();
@@ -369,28 +369,32 @@ function drawCarousel() {
 
         // Selection ring
         noFill();
-        if (isBase)      { stroke('#3a6bc4'); strokeWeight(5); }
-        else if (isTop)  { stroke('#c45a1a'); strokeWeight(5); }
+        if (isBase)      { stroke('#1c1814'); strokeWeight(5); }
+        else if (isTop)  { stroke('#1c1814'); strokeWeight(5); }
         else             { stroke('#e2dbd2'); strokeWeight(2); }
         rectMode(CENTER);
         square(cx, sy, SWATCH, 12);
         noStroke();
 
-        // B/T badge
+        // bot/top badge
         if (isBase || isTop) {
-            fill(isBase ? color(58,107,196) : color(196,90,26));
-            circle(cx + SWATCH/2 - 2, sy - SWATCH/2 + 2, 18);
+            const badgeCX = cx;
+            const badgeCY = sy - SWATCH/2 + 2;
+            const bw = 26, bh = 14;
+            fill(color(28,24,20));
+            rectMode(CENTER);
+            rect(badgeCX, badgeCY, bw, bh, 7);
             fill(255);
             textAlign(CENTER, CENTER);
-            textSize(9); textStyle(BOLD);
-            text(isBase ? 'B' : 'T', cx + SWATCH/2 - 2, sy - SWATCH/2 + 2);
+            textSize(8); textStyle(BOLD);
+            text(isBase ? 'bot' : 'top', badgeCX, badgeCY);
         }
 
         // Name label
         noStroke();
         fill(isBase||isTop ? '#1c1814' : '#6b5e52');
         textAlign(CENTER, CENTER);
-        textSize(10);
+        textSize(11);
         textStyle(isBase||isTop ? BOLD : NORMAL);
         text(g.name.toUpperCase(), cx, sy + SWATCH/2 + 16);
     }
@@ -545,10 +549,32 @@ const STAGES = ['Greenware','Bisque','Glaze','Fired'];
 let pieces = [];
 let pieceCounter = 0;
 
+function savePieces() {
+    if (!currentUser) return;
+    const key = 'sga_pieces_' + currentUser.username.toLowerCase();
+    localStorage.setItem(key, JSON.stringify({ pieces, pieceCounter }));
+}
+
+function loadPieces() {
+    pieces = [];
+    pieceCounter = 0;
+    if (!currentUser) return;
+    const key = 'sga_pieces_' + currentUser.username.toLowerCase();
+    const stored = localStorage.getItem(key);
+    if (!stored) return;
+    try {
+        const data = JSON.parse(stored);
+        pieces      = data.pieces      || [];
+        pieceCounter = data.pieceCounter || 0;
+    } catch(e) {}
+}
+
 function addPiece() {
     const id = ++pieceCounter;
-    pieces.push({ id, name: '', expanded: true, stages: { Greenware:{}, Bisque:{}, Glaze:{}, Fired:{} } });
+    pieces.push({ id, name: '', stages: { Greenware:{}, Bisque:{}, Glaze:{}, Fired:{} } });
     renderPieces();
+    _isNewPiece = true;
+    openPieceOverlay(id);
 }
 
 // ── Delete piece ─────────────────────────────────────────────────────────────
@@ -561,8 +587,14 @@ function requestDeletePiece(id) {
 
 function confirmDelete() {
     if (pendingDelete !== null) {
+        const wasActive = activePieceId === pendingDelete;
         pieces = pieces.filter(p => p.id !== pendingDelete);
         pendingDelete = null;
+        savePieces();
+        if (wasActive) {
+            _isNewPiece = false;
+            closePieceOverlay();
+        }
         renderPieces();
     }
     document.getElementById('delete-confirm').classList.remove('open');
@@ -578,17 +610,89 @@ document.getElementById('delete-confirm').addEventListener('click', function(e) 
     if (e.target === this) cancelDelete();
 });
 
-function togglePiece(id) {
+let activePieceId = null;
+let _isNewPiece   = false;
+
+function openPieceOverlay(id) {
+    activePieceId = id;
     const piece = pieces.find(p => p.id === id);
     if (!piece) return;
-    piece.expanded = !piece.expanded;
-    // Update DOM directly — no full re-render needed
-    const card = document.querySelector(`.piece-card[data-id="${id}"]`);
-    if (!card) return;
-    const body    = card.querySelector('.piece-body');
-    const chevron = card.querySelector('.piece-chevron');
-    body.classList.toggle('open', piece.expanded);
-    chevron.classList.toggle('open', piece.expanded);
+    document.getElementById('piece-edit-name').value = piece.name;
+    document.getElementById('piece-edit-delete-btn').onclick = () => requestDeletePiece(id);
+    renderPieceOverlayContent(piece);
+    document.getElementById('piece-edit-overlay').classList.add('open');
+}
+
+function closePieceOverlay() {
+    if (_isNewPiece && activePieceId !== null) {
+        const piece = pieces.find(p => p.id === activePieceId);
+        if (piece) {
+            const hasName    = piece.name && piece.name.trim();
+            const hasContent = STAGES.some(s =>
+                (piece.stages[s].photos && piece.stages[s].photos.length) ||
+                (piece.stages[s].notes  && piece.stages[s].notes.trim())
+            );
+            if (!hasName && !hasContent) {
+                pieces = pieces.filter(p => p.id !== activePieceId);
+            }
+        }
+    }
+    _isNewPiece   = false;
+    activePieceId = null;
+    savePieces();
+    document.getElementById('piece-edit-overlay').classList.remove('open');
+    renderPieces();
+}
+
+function renderPieceOverlayContent(piece) {
+    const filledCount = STAGES.filter(s =>
+        (piece.stages[s].photos && piece.stages[s].photos.length) || (piece.stages[s].notes && piece.stages[s].notes.trim())
+    ).length;
+
+    const progressSegs = STAGES.map((_s, i) => {
+        let cls = 'progress-seg';
+        if (i < filledCount) cls += ' done';
+        else if (i === filledCount) cls += ' active';
+        return `<div class="${cls}"></div>`;
+    }).join('');
+
+    const stageRows = STAGES.map(stage => {
+        const d = piece.stages[stage];
+        const photos = d.photos || [];
+        const hasPhotos = photos.length > 0;
+        const thumbHtml = hasPhotos
+            ? `<img class="photo-thumb" src="${photos[0]}" alt="${stage}"
+                   onclick="openLightbox(${piece.id},'${stage}',0)">
+               ${photos.length > 1 ? `<div class="photo-count-badge">${photos.length}</div>` : ''}`
+            : `<span class="plus-icon">+</span>`;
+        return `
+        <div class="stage-row">
+            <div class="stage-label">${stage}</div>
+            <div class="stage-body">
+                <div class="photo-slot-single ${hasPhotos ? 'has-photo' : ''}">
+                    ${thumbHtml}
+                    <input type="file" accept="image/*" multiple
+                        onchange="handlePhotos(event,${piece.id},'${stage}')"
+                        ${hasPhotos ? 'style="display:none"' : ''}>
+                </div>
+                <textarea class="stage-notes" rows="3"
+                    placeholder="Notes on ${stage.toLowerCase()}…"
+                    oninput="handleNotes(event,${piece.id},'${stage}')"
+                >${d.notes || ''}</textarea>
+            </div>
+        </div>`;
+    }).join('');
+
+    document.getElementById('piece-edit-body').innerHTML = `
+        <div class="piece-progress">${progressSegs}</div>
+        <div class="piece-stages">${stageRows}</div>
+    `;
+}
+
+function handleOverlayName(e) {
+    if (activePieceId === null) return;
+    const p = pieces.find(p => p.id === activePieceId);
+    if (p) { p.name = e.target.value; savePieces(); }
 }
 
 function renderPieces() {
@@ -615,67 +719,26 @@ function renderPieces() {
             return `<div class="${cls}"></div>`;
         }).join('');
 
-        const stageRows = STAGES.map(stage => {
-            const d = piece.stages[stage];
-            const photos = d.photos || [];
-            const hasPhotos = photos.length > 0;
-            // Show only the first photo as a thumbnail; tap to open full lightbox
-            const thumbHtml = hasPhotos
-                ? `<img class="photo-thumb" src="${photos[0]}" alt="${stage}"
-                       onclick="openLightbox(${piece.id},'${stage}',0)">
-                   ${photos.length > 1 ? `<div class="photo-count-badge">${photos.length}</div>` : ''}`
-                : `<span class="plus-icon">+</span>`;
-            return `
-            <div class="stage-row">
-                <div class="stage-label">${stage}</div>
-                <div class="stage-body">
-                    <div class="photo-slot-single ${hasPhotos ? 'has-photo' : ''}">
-                        ${thumbHtml}
-                        <input type="file" accept="image/*" multiple
-                            onchange="handlePhotos(event,${piece.id},'${stage}')"
-                            ${hasPhotos ? 'style="display:none"' : ''}>
-                    </div>
-                    <textarea class="stage-notes" rows="3"
-                        placeholder="Notes on ${stage.toLowerCase()}…"
-                        oninput="handleNotes(event,${piece.id},'${stage}')"
-                    >${d.notes || ''}</textarea>
-                </div>
-            </div>`;
-        }).join('');
+        const hasName    = piece.name && piece.name.trim();
+        const firstPhoto = STAGES.reduce((found, s) => {
+            if (found) return found;
+            const photos = piece.stages[s].photos;
+            return (photos && photos.length) ? photos[0] : null;
+        }, null);
 
-        const isOpen = piece.expanded !== false;
         card.innerHTML = `
-            <div class="piece-card-header" onclick="togglePiece(${piece.id})" style="cursor:pointer;"
-                data-id="${piece.id}">
-                <div class="drag-handle" onpointerdown="startPieceDrag(event,${piece.id})" onclick="event.stopPropagation()">⠿</div>
-                <input class="piece-name-input" type="text"
-                    placeholder="Untitled piece" value="${piece.name}"
-                    oninput="handleName(event,${piece.id})"
-                    onclick="event.stopPropagation()">
-                <button class="piece-chevron ${isOpen ? 'open' : ''}"
-                    onclick="event.stopPropagation();togglePiece(${piece.id})">▼</button>
-            </div>
-            <div class="piece-body ${isOpen ? 'open' : ''}">
+            <div class="drag-handle" onpointerdown="startPieceDrag(event,${piece.id})" onclick="event.stopPropagation()">⠿</div>
+            ${firstPhoto ? `<img class="piece-card-thumb" src="${firstPhoto}" alt="">` : '<div class="piece-card-thumb-empty"></div>'}
+            <div class="piece-card-info">
+                <div class="piece-card-name${hasName ? '' : ' placeholder'}">${hasName ? piece.name : 'Untitled piece'}</div>
                 <div class="piece-progress">${progressSegs}</div>
-                <div class="piece-stages">${stageRows}</div>
-                <div class="piece-delete-row">
-                    <button class="piece-delete-btn" onclick="requestDeletePiece(${piece.id})">Delete piece</button>
-                </div>
             </div>
         `;
+        card.addEventListener('click', () => openPieceOverlay(piece.id));
         list.appendChild(card);
     });
 
-    // Re-apply active search so filter persists after re-render
     if (searchQuery) filterPieces(searchQuery);
-}
-
-function handleName(e, id) {
-    const p = pieces.find(p => p.id === id);
-    if (p) p.name = e.target.value;
-    // Re-apply active search filter so renamed pieces update live
-    const q = document.getElementById('search-input');
-    if (q && q.value.trim()) filterPieces(q.value);
 }
 
 let searchQuery = '';
@@ -691,9 +754,10 @@ function filterPieces(query) {
     let visible  = 0;
 
     cards.forEach(card => {
-        const nameEl = card.querySelector('.piece-name-input');
-        const name   = (nameEl ? nameEl.value : '').toLowerCase();
-        const match  = !searchQuery || name.includes(searchQuery);
+        const id    = parseInt(card.dataset.id);
+        const piece = pieces.find(p => p.id === id);
+        const name  = piece ? piece.name.toLowerCase() : '';
+        const match = !searchQuery || name.includes(searchQuery);
         card.style.display = match ? '' : 'none';
         if (match) visible++;
     });
@@ -811,12 +875,13 @@ function _onDragEnd() {
         pieces.push(piece);
     }
 
+    savePieces();
     renderPieces();
 }
 
 function handleNotes(e, id, stage) {
     const p = pieces.find(p => p.id === id);
-    if (p) p.stages[stage].notes = e.target.value;
+    if (p) { p.stages[stage].notes = e.target.value; savePieces(); }
     updateProgressBar(id);
 }
 
@@ -833,7 +898,14 @@ function handlePhotos(e, id, stage) {
         reader.onload = ev => {
             piece.stages[stage].photos.push(ev.target.result);
             loaded++;
-            if (loaded === files.length) renderPieces();
+            if (loaded === files.length) {
+                savePieces();
+                if (activePieceId === id) {
+                    renderPieceOverlayContent(piece);
+                } else {
+                    renderPieces();
+                }
+            }
         };
         reader.readAsDataURL(file);
     });
@@ -842,17 +914,20 @@ function handlePhotos(e, id, stage) {
 function updateProgressBar(id) {
     const piece = pieces.find(p => p.id === id);
     if (!piece) return;
-    const card = document.querySelector(`.piece-card[data-id="${id}"]`);
-    if (!card) return;
-    const segs = card.querySelectorAll('.progress-seg');
     const filledCount = STAGES.filter(s =>
-        piece.stages[s].photo || (piece.stages[s].notes && piece.stages[s].notes.trim())
+        (piece.stages[s].photos && piece.stages[s].photos.length) || (piece.stages[s].notes && piece.stages[s].notes.trim())
     ).length;
-    segs.forEach((seg, i) => {
+    const update = segs => segs.forEach((seg, i) => {
         seg.className = 'progress-seg';
         if (i < filledCount) seg.classList.add('done');
         else if (i === filledCount) seg.classList.add('active');
     });
+    // Update in overlay if open
+    const body = document.getElementById('piece-edit-body');
+    if (body) update([...body.querySelectorAll('.progress-seg')]);
+    // Update in list card
+    const card = document.querySelector(`.piece-card[data-id="${id}"]`);
+    if (card) update([...card.querySelectorAll('.progress-seg')]);
 }
 
 
@@ -963,11 +1038,14 @@ function showAuth(mode) {
         subtitle.textContent = 'Log In';
         formLogin.style.display  = 'flex';
         formCreate.style.display = 'none';
-        // Pre-fill remembered username
+        // Pre-fill remembered credentials
         const rememberedUser = localStorage.getItem('sga_remembered_user');
+        const rememberedPass = localStorage.getItem('sga_remembered_pass');
         const userInput      = document.getElementById('login-user');
+        const passInput      = document.getElementById('login-pass');
         const toggleEl       = document.getElementById('remember-me-toggle');
-        if (rememberedUser && userInput)  { userInput.value = rememberedUser; }
+        if (rememberedUser && userInput) userInput.value = rememberedUser;
+        if (rememberedPass && passInput) passInput.value = atob(rememberedPass);
         if (toggleEl) toggleEl.checked = !!rememberedUser;
     } else {
         title.textContent    = 'Get started';
@@ -1009,9 +1087,11 @@ function doLogin() {
     if (remember) {
         localStorage.setItem('sga_last_user', username.toLowerCase());
         localStorage.setItem('sga_remembered_user', username);
+        localStorage.setItem('sga_remembered_pass', btoa(password));
     } else {
         localStorage.removeItem('sga_last_user');
         localStorage.removeItem('sga_remembered_user');
+        localStorage.removeItem('sga_remembered_pass');
         sessionStorage.setItem('sga_last_user', username.toLowerCase());
     }
 
@@ -1605,6 +1685,8 @@ function resetGlazeSelection() {
 function doLogout() {
     document.getElementById('profile-overlay').classList.remove('open');
     currentUser = null;
+    pieces = [];
+    pieceCounter = 0;
     document.getElementById('pill-avatar').textContent = '?';
     resetGlazeSelection();
     showHome();
@@ -1613,6 +1695,10 @@ function doLogout() {
 function enterApp() {
     document.getElementById('home-screen').classList.add('hidden');
     document.getElementById('auth-screen').classList.add('hidden');
+
+    // Load persisted pieces for this user
+    loadPieces();
+    renderPieces();
 
     // Reset glaze selection for the new session
     resetGlazeSelection();
@@ -1856,6 +1942,74 @@ document.getElementById('profile-pill').addEventListener('touchend', function(e)
     e.preventDefault();
     openProfileOverlay();
 });
+
+// ═══════════════════════════════════════════════════════
+//  DRAG-TO-DISMISS  (bottom sheet overlays)
+// ═══════════════════════════════════════════════════════
+function addDragToDismiss(handleEl, sheetEl, onDismiss) {
+    const THRESHOLD = 120;
+    const EASE = 'transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)';
+    let startY = 0, dragY = 0, active = false;
+
+    function snapBack() {
+        sheetEl.style.transition = EASE;
+        sheetEl.style.transform  = 'translateY(0)';
+        sheetEl.addEventListener('transitionend', () => {
+            sheetEl.style.transition = '';
+            sheetEl.style.transform  = '';
+        }, { once: true });
+    }
+
+    function dismiss() {
+        sheetEl.style.transition = EASE;
+        sheetEl.style.transform  = 'translateY(110%)';
+        sheetEl.addEventListener('transitionend', () => {
+            onDismiss();
+            requestAnimationFrame(() => {
+                sheetEl.style.transition = '';
+                sheetEl.style.transform  = '';
+            });
+        }, { once: true });
+    }
+
+    handleEl.addEventListener('pointerdown', e => {
+        active = true;
+        startY = e.clientY;
+        dragY  = 0;
+        sheetEl.style.transition = 'none';
+        handleEl.setPointerCapture(e.pointerId);
+    });
+
+    handleEl.addEventListener('pointermove', e => {
+        if (!active) return;
+        dragY = Math.max(0, e.clientY - startY);
+        sheetEl.style.transform = `translateY(${dragY}px)`;
+    });
+
+    handleEl.addEventListener('pointerup', () => {
+        if (!active) return;
+        active = false;
+        dragY > THRESHOLD ? dismiss() : snapBack();
+    });
+
+    handleEl.addEventListener('pointercancel', () => {
+        if (!active) return;
+        active = false;
+        snapBack();
+    });
+}
+
+addDragToDismiss(
+    document.getElementById('piece-edit-sheet-handle'),
+    document.getElementById('piece-edit-overlay'),
+    closePieceOverlay
+);
+
+addDragToDismiss(
+    document.getElementById('profile-sheet-handle'),
+    document.getElementById('profile-sheet'),
+    () => document.getElementById('profile-overlay').classList.remove('open')
+);
 
 
 // ═══════════════════════════════════════════════════════
