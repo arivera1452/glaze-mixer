@@ -317,23 +317,6 @@ function drawTile() {
         // Tint logo/wordmark from the display colour
         tintLogo(displayCol);
         tintWordmark(displayCol);
-
-        // Label — pick black or white based on luminance
-        const r = red(displayCol), g = green(displayCol), b = blue(displayCol);
-        const lum = 0.299*r + 0.587*g + 0.114*b;
-        fill(lum > 140 ? color(0,0,0,190) : color(255,255,255,220));
-        textAlign(CENTER, CENTER);
-        if (selectedL2) {
-            textSize(12); textStyle(NORMAL);
-            text(`${selectedL2.name}  ›  ${selectedL1.name}`, TILE_CX, TILE_CY + TILE_SIZE/2 - 22);
-            textSize(26); textStyle(BOLD);
-            text("Mix", TILE_CX, TILE_CY - 10);
-        } else {
-            textSize(22); textStyle(BOLD);
-            text(selectedL1.name, TILE_CX, TILE_CY - 8);
-            textSize(12); textStyle(NORMAL);
-            text("BASE LAYER", TILE_CX, TILE_CY + 22);
-        }
     } else {
         fill('#ece8e1');
         square(TILE_CX, TILE_CY, TILE_SIZE, 8);
@@ -357,12 +340,33 @@ function drawTile() {
             text("to preview on tile", TILE_CX, TILE_CY + 14);
         }
     }
+    // Glaze name / mix label — below the tile, between tile and carousel
+    if (selectedL1) {
+        textAlign(CENTER, CENTER);
+        noStroke();
+        if (selectedL2) {
+            fill('#1c1814');
+            textSize(14); textStyle(BOLD);
+            text('MIX', TILE_CX, TILE_CY + TILE_SIZE/2 + 18);
+            fill('#6b5e52');
+            textSize(10); textStyle(NORMAL);
+            text(`${selectedL2.name.toUpperCase()}  ›  ${selectedL1.name.toUpperCase()}`, TILE_CX, TILE_CY + TILE_SIZE/2 + 34);
+        } else {
+            fill('#1c1814');
+            textSize(14); textStyle(BOLD);
+            text(selectedL1.name.toUpperCase(), TILE_CX, TILE_CY + TILE_SIZE/2 + 18);
+            fill('#b09070');
+            textSize(10); textStyle(NORMAL);
+            text('BASE LAYER', TILE_CX, TILE_CY + TILE_SIZE/2 + 34);
+        }
+    }
+
     // Studio label — drawn on canvas below the tile in desktop mode;
     // the HTML #active-studio-bar handles this in mobile mode.
     if (activeStudioCode && document.body.classList.contains('desktop-mode')) {
         const nameSpan   = document.getElementById('active-studio-name');
         const studioName = (nameSpan ? nameSpan.textContent : '').toUpperCase();
-        const labelY     = TILE_CY + TILE_SIZE / 2 + 22;
+        const labelY     = TILE_CY + TILE_SIZE / 2 + 52;
         const prefix     = 'VIEWING  ';
         textSize(10);
         textStyle(NORMAL);
